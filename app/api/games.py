@@ -71,6 +71,14 @@ async def analyze_game(game_data: GameCreate):
 
         review_output = await supervisor.review_game(input_data)
 
+        # Check if review_output is None (shouldn't happen, but safety check)
+        if review_output is None:
+            logger.error("review_output is None - workflow returned None")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Game analysis failed - workflow returned None",
+            )
+
         if review_output.status == "error":
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

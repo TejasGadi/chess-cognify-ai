@@ -16,13 +16,14 @@ class MoveClassificationService:
 
     # Classification thresholds (in pawns) - chess.com style
     # Best: played move = best move (delta = 0)
-    # Good: delta >= -0.5 pawns
-    # Inaccuracy: delta >= -1.0 pawns
-    # Mistake: delta >= -2.0 pawns
-    # Blunder: delta < -2.0 pawns
-    THRESHOLD_GOOD = -0.5
-    THRESHOLD_INACCURACY = -1.0
-    THRESHOLD_MISTAKE = -2.0
+    # Good: |delta| <= 0.5 pawns (within 0.5 pawns of best move)
+    # Inaccuracy: |delta| <= 1.0 pawns (within 1.0 pawns of best move)
+    # Mistake: |delta| <= 2.0 pawns (within 2.0 pawns of best move)
+    # Blunder: |delta| > 2.0 pawns (more than 2.0 pawns worse than best move)
+    # Note: We use absolute value since delta can be positive (worse for player) or negative (better for player)
+    THRESHOLD_GOOD = 0.5
+    THRESHOLD_INACCURACY = 1.0
+    THRESHOLD_MISTAKE = 2.0
 
     @staticmethod
     def parse_evaluation(eval_str: str) -> float:
@@ -112,16 +113,19 @@ class MoveClassificationService:
         )
 
         # Convert to pawns for threshold comparison
-        delta_pawns = delta_cp / 100.0
+        # Use absolute value since delta can be positive (worse for player) or negative (better for player)
+        # We only care about the magnitude of the difference
+        delta_pawns = abs(delta_cp) / 100.0
 
         # Classify based on thresholds (chess.com style: Best, Good, Inaccuracy, Mistake, Blunder)
-        if delta_pawns >= MoveClassificationService.THRESHOLD_GOOD:
+        # Thresholds are in terms of absolute pawn difference
+        if delta_pawns <= 0.5:  # Within 0.5 pawns of best move
             label = "Good"
-        elif delta_pawns >= MoveClassificationService.THRESHOLD_INACCURACY:
+        elif delta_pawns <= 1.0:  # Within 1.0 pawns of best move
             label = "Inaccuracy"
-        elif delta_pawns >= MoveClassificationService.THRESHOLD_MISTAKE:
+        elif delta_pawns <= 2.0:  # Within 2.0 pawns of best move
             label = "Mistake"
-        else:
+        else:  # More than 2.0 pawns worse than best move
             label = "Blunder"
 
         # Centipawn loss is the absolute value of delta (always positive)

@@ -24,12 +24,14 @@ class SupervisorAgent:
 
     def __init__(self):
         """Initialize supervisor agent with all required services."""
+        logger.debug("Initializing SupervisorAgent")
         self.pgn_service = PGNService()
         self.engine_service = EngineAnalysisService()
         self.classification_service = MoveClassificationService()
         self.accuracy_service = AccuracyRatingService()
         self.explanation_agent = ExplanationAgent()
         self.weakness_agent = WeaknessDetectionAgent()
+        logger.info("SupervisorAgent initialized with all services")
 
     def _create_initial_state(
         self, pgn: str, metadata: Optional[Dict[str, Any]] = None, game_id: Optional[str] = None
@@ -37,8 +39,14 @@ class SupervisorAgent:
         """Create initial state for workflow."""
         if game_id is None:
             game_id = str(uuid.uuid4())
+            logger.debug(f"Generated new game_id: {game_id}")
+        else:
+            logger.debug(f"Using provided game_id: {game_id}")
 
-        return {
+        logger.info(f"Creating initial state for game {game_id}")
+        logger.debug(f"PGN length: {len(pgn)} characters, metadata keys: {list(metadata.keys()) if metadata else []}")
+
+        state = {
             "game_id": game_id,
             "pgn": pgn,
             "metadata": metadata or {},
@@ -66,14 +74,29 @@ class SupervisorAgent:
             "current_step": "initialized",
             "progress_percentage": 0,
         }
+        
+        logger.debug(f"Initial state created: game_id={game_id}, step={state['current_step']}, progress={state['progress_percentage']}%")
+        return state
 
     async def validate_pgn(self, state: GameReviewState) -> GameReviewState:
         """Node: Validate PGN."""
-        logger.info(f"Validating PGN for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: validate_pgn - Received None state")
+            raise ValueError("State is None in validate_pgn node")
+        
+        game_id = state.get('game_id')
+        if not game_id:
+            logger.error("[WORKFLOW] Node: validate_pgn - game_id is missing from state")
+            raise ValueError("game_id is missing from state")
+        
+        logger.info(f"[WORKFLOW] Node: validate_pgn - Starting for game {game_id}")
+        logger.debug(f"[WORKFLOW] State before validate_pgn: step={state.get('current_step')}, progress={state.get('progress_percentage')}%")
+        
         state["current_step"] = "validating_pgn"
         state["progress_percentage"] = 5
 
         try:
+            logger.debug(f"[WORKFLOW] Calling PGNService.validate_pgn()")
             is_valid, error = self.pgn_service.validate_pgn(state["pgn"])
             state["pgn_valid"] = is_valid
             state["validation_error"] = error
@@ -81,74 +104,127 @@ class SupervisorAgent:
             if not is_valid:
                 state["review_error"] = f"PGN validation failed: {error}"
                 state["review_complete"] = True
-                logger.error(f"PGN validation failed: {error}")
+                logger.error(f"[WORKFLOW] Node: validate_pgn - FAILED: {error}")
+                logger.debug(f"[WORKFLOW] State after validate_pgn: pgn_valid=False, review_complete=True")
+            else:
+                logger.info(f"[WORKFLOW] Node: validate_pgn - SUCCESS: PGN is valid")
+                logger.debug(f"[WORKFLOW] State after validate_pgn: pgn_valid=True, validation_error=None")
         except Exception as e:
-            logger.error(f"Error validating PGN: {e}")
+            logger.error(f"[WORKFLOW] Node: validate_pgn - EXCEPTION: {e}", exc_info=True)
             state["pgn_valid"] = False
             state["validation_error"] = str(e)
             state["review_error"] = f"PGN validation error: {e}"
             state["review_complete"] = True
+            logger.debug(f"[WORKFLOW] State after validate_pgn exception: pgn_valid=False, review_complete=True")
 
+        logger.debug(f"[WORKFLOW] Node: validate_pgn - Completed, returning state")
         return state
 
     async def analyze_engine(self, state: GameReviewState) -> GameReviewState:
         """Node: Engine Analysis."""
-        logger.info(f"Starting engine analysis for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: analyze_engine - Received None state")
+            raise ValueError("State is None in analyze_engine node")
+        
+        game_id = state.get('game_id')
+        if not game_id:
+            logger.error("[WORKFLOW] Node: analyze_engine - game_id is missing from state")
+            raise ValueError("game_id is missing from state")
+        
+        logger.info(f"[WORKFLOW] Node: analyze_engine - Starting for game {game_id}")
+        logger.debug(f"[WORKFLOW] State before analyze_engine: step={state.get('current_step')}, progress={state.get('progress_percentage')}%")
+        
         state["current_step"] = "engine_analysis"
         state["progress_percentage"] = 20
 
         try:
             # Persist game first
+            logger.debug(f"[WORKFLOW] Persisting game to database")
             self._persist_game(state)
 
             # Analyze game
+            logger.debug(f"[WORKFLOW] Calling EngineAnalysisService.analyze_game()")
+            logger.info(f"[AGENT] EngineAnalysisService - Starting analysis for game {game_id}")
             analyses = await self.engine_service.analyze_game(
                 state["pgn"], state["game_id"], use_cache=True
             )
 
             if not analyses or len(analyses) == 0:
-                raise ValueError("Engine analysis returned no results - check Stockfish configuration")
+                error_msg = "Engine analysis returned no results - check Stockfish configuration"
+                logger.error(f"[WORKFLOW] Node: analyze_engine - FAILED: {error_msg}")
+                raise ValueError(error_msg)
+
+            logger.debug(f"[WORKFLOW] Engine analysis returned {len(analyses)} move analyses")
+            logger.info(f"[AGENT] EngineAnalysisService - Completed: {len(analyses)} moves analyzed")
 
             # Persist analyses
+            logger.debug(f"[WORKFLOW] Persisting engine analyses to database")
             await self.engine_service.persist_analysis(state["game_id"], analyses)
 
             state["engine_analyses"] = analyses
             state["engine_analysis_complete"] = True
             state["progress_percentage"] = 40
-            logger.info(f"Engine analysis complete: {len(analyses)} moves analyzed")
+            logger.info(f"[WORKFLOW] Node: analyze_engine - SUCCESS: {len(analyses)} moves analyzed")
+            logger.debug(f"[WORKFLOW] State after analyze_engine: engine_analysis_complete=True, progress=40%")
         except Exception as e:
-            logger.error(f"Error in engine analysis: {e}", exc_info=True)
+            logger.error(f"[WORKFLOW] Node: analyze_engine - EXCEPTION: {e}", exc_info=True)
             state["engine_analysis_error"] = str(e)
             state["engine_analysis_complete"] = False
             state["review_error"] = f"Engine analysis error: {e}"
             state["review_complete"] = True
+            logger.debug(f"[WORKFLOW] State after analyze_engine exception: engine_analysis_complete=False, review_complete=True")
 
+        logger.debug(f"[WORKFLOW] Node: analyze_engine - Completed, returning state")
         return state
 
     async def classify_moves(self, state: GameReviewState) -> GameReviewState:
         """Node: Move Classification."""
-        logger.info(f"Classifying moves for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: classify_moves - Received None state")
+            raise ValueError("State is None in classify_moves node")
+        
+        game_id = state.get('game_id')
+        if not game_id:
+            logger.error("[WORKFLOW] Node: classify_moves - game_id is missing from state")
+            raise ValueError("game_id is missing from state")
+        
+        logger.info(f"[WORKFLOW] Node: classify_moves - Starting for game {game_id}")
+        logger.debug(f"[WORKFLOW] State before classify_moves: step={state.get('current_step')}, progress={state.get('progress_percentage')}%")
+        
         state["current_step"] = "move_classification"
         state["progress_percentage"] = 50
 
         try:
-            if not state.get("engine_analyses") or len(state["engine_analyses"]) == 0:
-                raise ValueError("No engine analyses available for classification")
+            engine_analyses = state.get("engine_analyses", [])
+            if not engine_analyses or len(engine_analyses) == 0:
+                error_msg = "No engine analyses available for classification"
+                logger.error(f"[WORKFLOW] Node: classify_moves - FAILED: {error_msg}")
+                raise ValueError(error_msg)
+
+            logger.debug(f"[WORKFLOW] Classifying {len(engine_analyses)} moves")
+            logger.info(f"[AGENT] MoveClassificationService - Starting classification for game {game_id}")
 
             # Classify moves
             classifications = self.classification_service.classify_game_moves(
-                state["game_id"], state["engine_analyses"]
+                state["game_id"], engine_analyses
             )
 
             if not classifications or len(classifications) == 0:
-                raise ValueError("Move classification returned no results")
+                error_msg = "Move classification returned no results"
+                logger.error(f"[WORKFLOW] Node: classify_moves - FAILED: {error_msg}")
+                raise ValueError(error_msg)
+
+            logger.debug(f"[WORKFLOW] Classification returned {len(classifications)} results")
+            logger.info(f"[AGENT] MoveClassificationService - Completed: {len(classifications)} moves classified")
 
             # Add phases
+            logger.debug(f"[WORKFLOW] Adding game phases to classifications")
             classifications = self.classification_service.add_game_phases(
                 state["game_id"], classifications, state["pgn"]
             )
 
             # Persist classifications
+            logger.debug(f"[WORKFLOW] Persisting classifications to database")
             self.classification_service.persist_classifications(
                 state["game_id"], classifications
             )
@@ -156,24 +232,40 @@ class SupervisorAgent:
             state["classifications"] = classifications
             state["classification_complete"] = True
             state["progress_percentage"] = 60
-            logger.info(f"Move classification complete: {len(classifications)} moves classified")
+            logger.info(f"[WORKFLOW] Node: classify_moves - SUCCESS: {len(classifications)} moves classified")
+            logger.debug(f"[WORKFLOW] State after classify_moves: classification_complete=True, progress=60%")
         except Exception as e:
-            logger.error(f"Error in move classification: {e}", exc_info=True)
+            logger.error(f"[WORKFLOW] Node: classify_moves - EXCEPTION: {e}", exc_info=True)
             state["classification_error"] = str(e)
             state["classification_complete"] = False
             state["review_error"] = f"Move classification error: {e}"
             state["review_complete"] = True
+            logger.debug(f"[WORKFLOW] State after classify_moves exception: classification_complete=False, review_complete=True")
 
+        logger.debug(f"[WORKFLOW] Node: classify_moves - Completed, returning state")
         return state
 
     async def generate_explanations(self, state: GameReviewState) -> GameReviewState:
         """Node: Generate Explanations (conditional)."""
-        logger.info(f"Generating explanations for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: generate_explanations - Received None state")
+            raise ValueError("State is None in generate_explanations node")
+        
+        game_id = state.get('game_id')
+        if not game_id:
+            logger.error("[WORKFLOW] Node: generate_explanations - game_id is missing from state")
+            raise ValueError("game_id is missing from state")
+        
+        logger.info(f"[WORKFLOW] Node: generate_explanations - Starting for game {game_id}")
+        logger.debug(f"[WORKFLOW] State before generate_explanations: step={state.get('current_step')}, progress={state.get('progress_percentage')}%")
+        
         state["current_step"] = "generating_explanations"
         state["progress_percentage"] = 70
 
         try:
             # Generate explanations for mistakes
+            logger.debug(f"[WORKFLOW] Calling ExplanationAgent.explain_game_moves()")
+            logger.info(f"[AGENT] ExplanationAgent - Starting explanation generation for game {game_id}")
             explanations = await self.explanation_agent.explain_game_moves(
                 state["game_id"], use_cache=True
             )
@@ -181,19 +273,29 @@ class SupervisorAgent:
             state["explanations"] = explanations
             state["explanation_complete"] = True
             state["progress_percentage"] = 75
-            logger.info(f"Explanations complete: {len(explanations)} explanations generated")
+            logger.info(f"[WORKFLOW] Node: generate_explanations - SUCCESS: {len(explanations)} explanations generated")
+            logger.info(f"[AGENT] ExplanationAgent - Completed: {len(explanations)} explanations generated")
+            logger.debug(f"[WORKFLOW] State after generate_explanations: explanation_complete=True, progress=75%")
         except Exception as e:
-            logger.error(f"Error generating explanations: {e}")
+            logger.error(f"[WORKFLOW] Node: generate_explanations - EXCEPTION: {e}", exc_info=True)
+            logger.error(f"[AGENT] ExplanationAgent - Error: {e}")
             state["explanation_error"] = str(e)
             # Don't fail entire review if explanations fail
             state["explanation_complete"] = True
             state["explanations"] = {}
+            logger.debug(f"[WORKFLOW] State after generate_explanations exception: explanation_complete=True (non-fatal), explanations={{}}")
 
+        logger.debug(f"[WORKFLOW] Node: generate_explanations - Completed, returning state")
         return state
 
     async def calculate_accuracy_rating(self, state: GameReviewState) -> GameReviewState:
         """Node: Accuracy & Rating."""
-        logger.info(f"Calculating accuracy and rating for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: calculate_accuracy_rating - Received None state")
+            raise ValueError("State is None in calculate_accuracy_rating node")
+        
+        game_id = state.get('game_id', 'unknown')
+        logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Starting for game {game_id}")
         state["current_step"] = "accuracy_rating"
         state["progress_percentage"] = 80
 
@@ -241,7 +343,12 @@ class SupervisorAgent:
 
     async def detect_weaknesses(self, state: GameReviewState) -> GameReviewState:
         """Node: Weakness Detection."""
-        logger.info(f"Detecting weaknesses for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: detect_weaknesses - Received None state")
+            raise ValueError("State is None in detect_weaknesses node")
+        
+        game_id = state.get('game_id', 'unknown')
+        logger.info(f"[WORKFLOW] Node: detect_weaknesses - Starting for game {game_id}")
         state["current_step"] = "weakness_detection"
         state["progress_percentage"] = 95
 
@@ -266,7 +373,12 @@ class SupervisorAgent:
 
     def finalize_review(self, state: GameReviewState) -> GameReviewState:
         """Node: Finalize Review."""
-        logger.info(f"Finalizing review for game {state['game_id']}")
+        if state is None:
+            logger.error("[WORKFLOW] Node: finalize_review - Received None state")
+            raise ValueError("State is None in finalize_review node")
+        
+        game_id = state.get('game_id', 'unknown')
+        logger.info(f"[WORKFLOW] Node: finalize_review - Starting for game {game_id}")
         state["current_step"] = "complete"
         state["review_complete"] = True
         state["progress_percentage"] = 100
@@ -305,39 +417,79 @@ class SupervisorAgent:
 
     def should_continue_after_validation(self, state: GameReviewState) -> str:
         """Conditional: Continue only if PGN is valid."""
-        if state.get("review_error") or not state.get("pgn_valid", False):
-            return "finalize_review"
-        return "analyze_engine"
+        game_id = state.get('game_id', 'unknown')
+        has_error = bool(state.get("review_error"))
+        pgn_valid = state.get("pgn_valid", False)
+        
+        if has_error or not pgn_valid:
+            decision = "finalize_review"
+            logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_validation -> {decision} (has_error={has_error}, pgn_valid={pgn_valid})")
+            return decision
+        
+        decision = "analyze_engine"
+        logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_validation -> {decision} (PGN valid, proceeding)")
+        return decision
     
     def should_continue_after_engine(self, state: GameReviewState) -> str:
         """Conditional: Continue only if engine analysis succeeded."""
-        if state.get("review_error") or not state.get("engine_analysis_complete", False):
-            return "finalize_review"
-        return "classify_moves"
+        game_id = state.get('game_id', 'unknown')
+        has_error = bool(state.get("review_error"))
+        engine_complete = state.get("engine_analysis_complete", False)
+        
+        if has_error or not engine_complete:
+            decision = "finalize_review"
+            logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_engine -> {decision} (has_error={has_error}, engine_complete={engine_complete})")
+            return decision
+        
+        decision = "classify_moves"
+        logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_engine -> {decision} (engine analysis complete, proceeding)")
+        return decision
     
     def should_continue_after_classification(self, state: GameReviewState) -> str:
         """Conditional: Continue only if classification succeeded."""
-        if state.get("review_error") or not state.get("classification_complete", False):
-            return "finalize_review"
-        return "generate_explanations"
+        game_id = state.get('game_id', 'unknown')
+        has_error = bool(state.get("review_error"))
+        classification_complete = state.get("classification_complete", False)
+        
+        if has_error or not classification_complete:
+            decision = "finalize_review"
+            logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_classification -> {decision} (has_error={has_error}, classification_complete={classification_complete})")
+            return decision
+        
+        decision = "generate_explanations"
+        logger.debug(f"[WORKFLOW] Conditional edge: should_continue_after_classification -> {decision} (classification complete, proceeding)")
+        return decision
 
     def build_graph(self) -> StateGraph:
         """Build LangGraph workflow."""
+        logger.info("[WORKFLOW] Building LangGraph workflow graph")
+        logger.debug("[WORKFLOW] Creating StateGraph with GameReviewState")
+        
         workflow = StateGraph(GameReviewState)
 
         # Add nodes
+        logger.debug("[WORKFLOW] Adding workflow nodes")
         workflow.add_node("validate_pgn", self.validate_pgn)
+        logger.debug("[WORKFLOW] Added node: validate_pgn")
         workflow.add_node("analyze_engine", self.analyze_engine)
+        logger.debug("[WORKFLOW] Added node: analyze_engine")
         workflow.add_node("classify_moves", self.classify_moves)
+        logger.debug("[WORKFLOW] Added node: classify_moves")
         workflow.add_node("generate_explanations", self.generate_explanations)
+        logger.debug("[WORKFLOW] Added node: generate_explanations")
         workflow.add_node("calculate_accuracy_rating", self.calculate_accuracy_rating)
+        logger.debug("[WORKFLOW] Added node: calculate_accuracy_rating")
         workflow.add_node("detect_weaknesses", self.detect_weaknesses)
+        logger.debug("[WORKFLOW] Added node: detect_weaknesses")
         workflow.add_node("finalize_review", self.finalize_review)
+        logger.debug("[WORKFLOW] Added node: finalize_review")
 
         # Set entry point
+        logger.debug("[WORKFLOW] Setting entry point: START -> validate_pgn")
         workflow.add_edge(START, "validate_pgn")
 
         # Add conditional edges
+        logger.debug("[WORKFLOW] Adding conditional edge: validate_pgn -> (analyze_engine | finalize_review)")
         workflow.add_conditional_edges(
             "validate_pgn",
             self.should_continue_after_validation,
@@ -347,6 +499,7 @@ class SupervisorAgent:
             }
         )
         
+        logger.debug("[WORKFLOW] Adding conditional edge: analyze_engine -> (classify_moves | finalize_review)")
         workflow.add_conditional_edges(
             "analyze_engine",
             self.should_continue_after_engine,
@@ -356,6 +509,7 @@ class SupervisorAgent:
             }
         )
         
+        logger.debug("[WORKFLOW] Adding conditional edge: classify_moves -> (generate_explanations | finalize_review)")
         workflow.add_conditional_edges(
             "classify_moves",
             self.should_continue_after_classification,
@@ -366,11 +520,17 @@ class SupervisorAgent:
         )
 
         # Add direct edges for remaining steps
+        logger.debug("[WORKFLOW] Adding direct edges")
         workflow.add_edge("generate_explanations", "calculate_accuracy_rating")
+        logger.debug("[WORKFLOW] Added edge: generate_explanations -> calculate_accuracy_rating")
         workflow.add_edge("calculate_accuracy_rating", "detect_weaknesses")
+        logger.debug("[WORKFLOW] Added edge: calculate_accuracy_rating -> detect_weaknesses")
         workflow.add_edge("detect_weaknesses", "finalize_review")
+        logger.debug("[WORKFLOW] Added edge: detect_weaknesses -> finalize_review")
         workflow.add_edge("finalize_review", END)
+        logger.debug("[WORKFLOW] Added edge: finalize_review -> END")
 
+        logger.info("[WORKFLOW] LangGraph workflow graph built successfully")
         return workflow
 
     async def review_game(
@@ -385,24 +545,67 @@ class SupervisorAgent:
         Returns:
             Complete game review output
         """
+        logger.info("=" * 80)
+        logger.info("[WORKFLOW] ========== STARTING GAME REVIEW WORKFLOW ==========")
+        logger.info(f"[WORKFLOW] Game ID: {input_data.game_id or 'NEW'}")
+        logger.info(f"[WORKFLOW] PGN Length: {len(input_data.pgn)} characters")
+        logger.debug(f"[WORKFLOW] Metadata: {input_data.metadata}")
+        
         # Create initial state
+        logger.debug("[WORKFLOW] Creating initial state")
         state = self._create_initial_state(
             input_data.pgn, input_data.metadata, input_data.game_id
         )
+        
+        # Check if state is None (shouldn't happen, but safety check)
+        if state is None:
+            logger.error("[WORKFLOW] _create_initial_state returned None")
+            raise ValueError("Failed to create initial state - state is None")
+        
+        game_id = state.get("game_id")
+        if not game_id:
+            logger.error("[WORKFLOW] State created but game_id is missing")
+            raise ValueError("State created but game_id is missing")
+        
+        logger.info(f"[WORKFLOW] Initial state created for game {game_id}")
 
         # Build and compile graph
+        logger.debug("[WORKFLOW] Building LangGraph workflow")
         graph = self.build_graph()
+        logger.debug("[WORKFLOW] Compiling LangGraph workflow")
         app = graph.compile()
+        logger.info("[WORKFLOW] LangGraph workflow compiled and ready for execution")
 
         # Execute workflow
         try:
+            logger.info(f"[WORKFLOW] ========== EXECUTING WORKFLOW FOR GAME {game_id} ==========")
+            logger.debug(f"[WORKFLOW] Invoking workflow with initial state: step={state.get('current_step', 'unknown')}, progress={state.get('progress_percentage', 0)}%")
+            
             final_state = await app.ainvoke(state)
+            
+            # Check if final_state is None
+            if final_state is None:
+                logger.error(f"[WORKFLOW] Workflow returned None state for game {game_id}")
+                raise ValueError("Workflow execution returned None state")
+            
+            logger.info(f"[WORKFLOW] ========== WORKFLOW EXECUTION COMPLETE FOR GAME {game_id} ==========")
+            logger.info(f"[WORKFLOW] Final state: step={final_state.get('current_step')}, progress={final_state.get('progress_percentage')}%, review_complete={final_state.get('review_complete')}")
+            logger.debug(f"[WORKFLOW] Final state summary:")
+            logger.debug(f"[WORKFLOW]   - Engine analyses: {len(final_state.get('engine_analyses', []))}")
+            logger.debug(f"[WORKFLOW]   - Classifications: {len(final_state.get('classifications', []))}")
+            logger.debug(f"[WORKFLOW]   - Explanations: {len(final_state.get('explanations', {}))}")
+            logger.debug(f"[WORKFLOW]   - Accuracy: {final_state.get('accuracy')}")
+            logger.debug(f"[WORKFLOW]   - Estimated rating: {final_state.get('estimated_rating')}")
+            logger.debug(f"[WORKFLOW]   - Weaknesses: {len(final_state.get('weaknesses', []))}")
+            logger.debug(f"[WORKFLOW]   - Status: {'complete' if final_state.get('review_complete') else 'error'}")
+            logger.debug(f"[WORKFLOW]   - Error: {final_state.get('review_error')}")
 
             # Convert to output format
-            return GameReviewOutput(
-                game_id=final_state["game_id"],
-                pgn=final_state["pgn"],
-                metadata=final_state.get("metadata"),
+            # Use .get() for all fields to handle missing keys safely
+            output = GameReviewOutput(
+                game_id=final_state.get("game_id", state.get("game_id", "unknown")),
+                pgn=final_state.get("pgn", state.get("pgn", "")),
+                metadata=final_state.get("metadata", state.get("metadata")),
                 engine_analyses=final_state.get("engine_analyses", []),
                 classifications=final_state.get("classifications", []),
                 explanations=final_state.get("explanations", {}),
@@ -413,11 +616,19 @@ class SupervisorAgent:
                 status="complete" if final_state.get("review_complete") else "error",
                 error=final_state.get("review_error"),
             )
+            
+            logger.info(f"[WORKFLOW] ========== WORKFLOW SUCCESSFUL FOR GAME {game_id} ==========")
+            logger.info("=" * 80)
+            return output
         except Exception as e:
-            logger.error(f"Error in game review workflow: {e}")
-            return GameReviewOutput(
-                game_id=state["game_id"],
-                pgn=state["pgn"],
+            logger.error(f"[WORKFLOW] ========== WORKFLOW EXCEPTION FOR GAME {game_id} ==========")
+            logger.error(f"[WORKFLOW] Error in game review workflow: {e}", exc_info=True)
+            logger.error("=" * 80)
+            
+            # Use .get() to safely access state fields
+            output = GameReviewOutput(
+                game_id=state.get("game_id", "unknown"),
+                pgn=state.get("pgn", ""),
                 metadata=state.get("metadata"),
                 engine_analyses=[],
                 classifications=[],
@@ -429,3 +640,4 @@ class SupervisorAgent:
                 status="error",
                 error=str(e),
             )
+            return output

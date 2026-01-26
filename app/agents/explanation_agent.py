@@ -40,12 +40,13 @@ class ExplanationAgent:
             [
                 (
                     "system",
-                    """You are a chess coach providing move analysis. Your comments should be:
-- Clear and educational, focusing on chess concepts (piece activity, king safety, tactics, strategy)
-- Avoid engine jargon (no centipawns, no depth, no variations)
-- Maximum 4 sentences
+                    """You are an expert chess coach providing detailed move analysis. Your comments must be:
+- SPECIFIC and TACTICAL: Explain the exact chess reason why the move is good/bad
+- Focus on concrete chess concepts: piece traps, tactical sequences, weak squares, king safety, piece coordination
+- Avoid vague statements like "allows White to gain advantage" - explain HOW and WHY
+- Maximum 4 sentences, but be detailed and educational
 - Use Standard Algebraic Notation (SAN) for moves
-- Format your response as a natural comment on the user's move
+- Analyze the position deeply to understand tactical and positional implications
 
 **CRITICAL: Always identify whose turn it is (White or Black) and write from that player's perspective.**
 
@@ -57,16 +58,28 @@ class ExplanationAgent:
 - If {active_player} plays a move and evaluation becomes -2.50, this means {active_player} gave Black an advantage (good for {active_player})
 - Always interpret evaluations from the perspective of who just moved
 
+**ANALYSIS REQUIREMENTS:**
+- Look at the position (FEN) and identify specific tactical elements:
+  * Trapped pieces (pieces that can be captured)
+  * Pins, forks, discovered attacks
+  * Weak squares (especially around the king)
+  * Piece coordination issues
+  * Tactical sequences that the opponent can play
+- Explain WHY the move creates these problems or opportunities
+- Compare to the best move and explain what specific tactical/positional element was missed
+
 Comment format:
-- If White's move: "White played [move]. This is [quality] because [reason]..."
-- If Black's move: "Black played [move]. This is [quality] because [reason]..."
-- Always use "White" or "Black" explicitly when referring to the player who made the move
-- If it's the best move: "This is the best move because [reason]"
-- If it's a slight mistake: "This is a slight mistake because [reason]. Best move is "[best_move]". But your move is not bad/losing, [context]"
-- If it's a mistake/blunder: "This is a [mistake/blunder] because [reason]. Best move is "[best_move]". You missed [tactic/opportunity/threat]"
+- Start with "{active_player} played {played_move_san}"
+- Explain the SPECIFIC tactical or positional reason (e.g., "the queen becomes trapped after White's Rc1", "this weakens the f7 square allowing a knight fork", "this loses the bishop to a discovered attack")
+- If it's a mistake/blunder, explain the exact tactical sequence or positional weakness created
+- Compare to the best move and explain what specific opportunity was missed
 - Always mention the best move explicitly
-- When referring to pieces, use "White's queen" or "Black's queen" to be clear about which side you're discussing
-- Be SPECIFIC about what went wrong: mention trapped pieces, tactical sequences, positional weaknesses, etc.""",
+- When referring to pieces, use "White's queen" or "Black's queen" to be clear
+- Be SPECIFIC: Instead of "allows White to gain advantage", say "the queen becomes trapped after White's Rc1, losing material" or "this weakens the kingside allowing a mating attack"
+
+Example for a blunder: "Black played Qxb2. This is a blunder because the queen becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
+
+Always analyze the position deeply and explain specific tactical or positional reasons, not just evaluation numbers.""",
                 ),
                 (
                     "human",
@@ -269,6 +282,10 @@ Always be educational and mention specific chess concepts. Always refer to piece
                 top_moves_context = "Top engine moves: Not available"
 
             # Invoke chain with structured output
+            logger.debug(f"[AGENT] ExplanationAgent - Invoking LLM chain for move analysis")
+            logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
+            logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
+            
             result = await self.chain.ainvoke(
                 {
                     "fen": fen,
@@ -284,9 +301,12 @@ Always be educational and mention specific chess concepts. Always refer to piece
                     "evaluation_interpretation": evaluation_interpretation,
                 }
             )
+            
+            logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
 
             # Extract explanation from structured output
             explanation = result.explanation.strip()
+            logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
             if len(explanation) > 500:  # Safety check
                 explanation = explanation[:500] + "..."
 
@@ -455,12 +475,16 @@ Always be educational and mention specific chess concepts. Always refer to piece
 
             # Generate all explanations in parallel
             logger.info(
-                f"Generating {len(moves_to_generate)} explanations in parallel "
+                f"[AGENT] ExplanationAgent - Generating {len(moves_to_generate)} explanations in parallel "
                 f"(concurrency: {concurrency_limit}) for game {game_id}"
             )
+            logger.debug(f"[AGENT] ExplanationAgent - Moves to generate: {moves_to_generate}")
+            logger.debug(f"[AGENT] ExplanationAgent - Creating {len(moves_to_generate)} parallel tasks")
             
             tasks = [explain_with_semaphore(ply) for ply in moves_to_generate]
+            logger.debug(f"[AGENT] ExplanationAgent - Executing {len(tasks)} tasks with asyncio.gather()")
             results = await asyncio.gather(*tasks, return_exceptions=True)
+            logger.debug(f"[AGENT] ExplanationAgent - All parallel tasks completed, processing {len(results)} results")
             
             # Combine results
             explanations = cached_explanations.copy()
