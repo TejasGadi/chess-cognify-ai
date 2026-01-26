@@ -33,7 +33,8 @@ class Settings(BaseSettings):
 
     # Stockfish Engine
     stockfish_path: str = "/usr/local/bin/stockfish"  # Can be overridden via STOCKFISH_PATH env var
-    stockfish_depth: int = 18
+    stockfish_depth: int = 10  # Default depth for move analysis
+    stockfish_deep_depth: int = 20  # Deep depth for critical positions (eval delta > 1)
     stockfish_threads: int = 4
     stockfish_hash: int = 256  # MB
     stockfish_timeout: int = 30  # seconds
@@ -47,6 +48,9 @@ class Settings(BaseSettings):
     # LLM Settings
     llm_temperature: float = 0.7
     llm_max_tokens: int = 500
+    
+    # Parallel Processing
+    explanation_concurrency: int = 10  # Max concurrent explanation generations
 
     # Vector Database (Books) - Qdrant
     qdrant_url: str = "http://localhost:6333"

@@ -28,9 +28,10 @@ class EngineAnalysisService:
         game_id: str,
         stockfish: Optional[StockfishService] = None,
         use_cache: bool = True,
+        previous_eval: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Analyze a single move in a game.
+        Analyze a single move in a game with adaptive depth based on eval delta.
 
         Args:
             game: chess.pgn.Game object
@@ -38,6 +39,7 @@ class EngineAnalysisService:
             game_id: Unique game identifier
             stockfish: Stockfish service instance (creates new if None)
             use_cache: Whether to use cached results
+            previous_eval: Evaluation from previous move (for delta calculation)
 
         Returns:
             Dictionary with analysis results matching EngineAnalysis schema
@@ -65,8 +67,49 @@ class EngineAnalysisService:
             if move is None:
                 raise ValueError(f"No move found at ply {ply}")
 
-            # Analyze the move
-            analysis = await stockfish.analyze_move(board_before, move)
+            # Determine analysis depth based on eval delta from previous move
+            # Strategy: Do initial analysis at depth 10, check delta, re-analyze at depth 20 if needed
+            from app.config import settings
+            from app.services.move_classification_service import MoveClassificationService
+            
+            # First, do standard analysis at depth 10
+            standard_analysis = await stockfish.analyze_move(board_before, move, depth=settings.stockfish_depth)
+            analysis_depth = settings.stockfish_depth
+            analysis = standard_analysis
+            
+            # Calculate eval delta from previous move if available
+            # Delta = |eval_after_current_move - eval_after_previous_move|
+            # Stockfish always returns eval from white's perspective
+            # If delta > 1 pawn, it indicates a significant change (mistake/blunder), so use deep analysis
+            if previous_eval is not None:
+                try:
+                    eval_after_str = standard_analysis["eval_after_str"]
+                    
+                    # Parse evaluations to calculate delta
+                    prev_eval_cp = MoveClassificationService.parse_evaluation(previous_eval)
+                    current_eval_cp = MoveClassificationService.parse_evaluation(eval_after_str)
+                    
+                    # Calculate absolute delta (magnitude of change)
+                    # Both evals are from white's perspective, so we can compare directly
+                    # The delta represents how much the evaluation changed after this move
+                    eval_delta_cp = abs(current_eval_cp - prev_eval_cp)
+                    eval_delta_pawns = eval_delta_cp / 100.0
+                    
+                    logger.info(f"Ply {ply}: Eval delta from previous move: {eval_delta_pawns:.2f} pawns (prev: {previous_eval}, current: {eval_after_str})")
+                    
+                    # If eval delta > 1 pawn, re-analyze with deep depth
+                    # This indicates a significant position change (likely mistake/blunder)
+                    if eval_delta_pawns > 1.0:
+                        analysis_depth = settings.stockfish_deep_depth  # Depth 20
+                        logger.info(f"Ply {ply}: Large eval delta detected ({eval_delta_pawns:.2f} pawns), re-analyzing with deep depth ({analysis_depth})")
+                        # Re-analyze with deep depth for more accurate analysis
+                        analysis = await stockfish.analyze_move(board_before, move, depth=analysis_depth)
+                    else:
+                        logger.debug(f"Ply {ply}: Normal eval delta ({eval_delta_pawns:.2f} pawns), using standard depth ({analysis_depth})")
+                except Exception as e:
+                    logger.warning(f"Could not calculate eval delta: {e}, using standard analysis")
+            else:
+                logger.debug(f"Ply {ply}: No previous eval available (first move), using standard depth ({analysis_depth})")
 
             # Get FEN before move
             fen_before = board_before.fen()
@@ -83,6 +126,7 @@ class EngineAnalysisService:
                 "top_moves": analysis.get("top_moves", []),
                 "played_move_eval": str(analysis.get("played_move_eval_str", analysis["eval_after_str"])),
                 "played_move_rank": analysis.get("played_move_rank"),
+                "analysis_depth": analysis_depth,  # Store depth used for this analysis
             }
 
             # Cache the result
@@ -102,7 +146,7 @@ class EngineAnalysisService:
         use_cache: bool = True,
     ) -> List[Dict[str, Any]]:
         """
-        Analyze all moves in a game.
+        Analyze all moves in a game with adaptive depth based on eval deltas.
 
         Args:
             pgn_string: PGN format string
@@ -124,16 +168,26 @@ class EngineAnalysisService:
         stockfish = await get_stockfish_service()
 
         results = []
+        previous_eval = None  # Track previous move's evaluation
+        
         for ply in range(1, total_plies + 1):
             try:
+                # Analyze move with previous eval for delta calculation
                 analysis = await self.analyze_move(
-                    game, ply, game_id, stockfish, use_cache
+                    game, ply, game_id, stockfish, use_cache, previous_eval=previous_eval
                 )
                 results.append(analysis)
-                logger.info(f"Analyzed move {ply}/{total_plies} for game {game_id}")
+                
+                # Update previous_eval for next iteration (use eval_after of current move)
+                previous_eval = analysis.get("eval_after")
+                
+                depth_used = analysis.get("analysis_depth", "default")
+                logger.info(f"Analyzed move {ply}/{total_plies} for game {game_id} (depth: {depth_used})")
             except Exception as e:
                 logger.error(f"Failed to analyze ply {ply}: {e}")
                 # Continue with next move instead of failing entire game
+                # Reset previous_eval on error to avoid cascading issues
+                previous_eval = None
                 continue
 
         return results

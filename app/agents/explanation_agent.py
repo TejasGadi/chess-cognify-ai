@@ -47,28 +47,56 @@ class ExplanationAgent:
 - Use Standard Algebraic Notation (SAN) for moves
 - Format your response as a natural comment on the user's move
 
+**CRITICAL: Always identify whose turn it is (White or Black) and write from that player's perspective.**
+
+**EVALUATION UNDERSTANDING:**
+- Positive evaluation (+X.XX) = White has the advantage
+- Negative evaluation (-X.XX) = Black has the advantage
+- Higher absolute value = bigger advantage
+- If {active_player} plays a move and evaluation becomes +4.39, this means {active_player} gave White a huge advantage (bad for {active_player})
+- If {active_player} plays a move and evaluation becomes -2.50, this means {active_player} gave Black an advantage (good for {active_player})
+- Always interpret evaluations from the perspective of who just moved
+
 Comment format:
+- If White's move: "White played [move]. This is [quality] because [reason]..."
+- If Black's move: "Black played [move]. This is [quality] because [reason]..."
+- Always use "White" or "Black" explicitly when referring to the player who made the move
 - If it's the best move: "This is the best move because [reason]"
 - If it's a slight mistake: "This is a slight mistake because [reason]. Best move is "[best_move]". But your move is not bad/losing, [context]"
 - If it's a mistake/blunder: "This is a [mistake/blunder] because [reason]. Best move is "[best_move]". You missed [tactic/opportunity/threat]"
-- Always mention the best move explicitly""",
+- Always mention the best move explicitly
+- When referring to pieces, use "White's queen" or "Black's queen" to be clear about which side you're discussing
+- Be SPECIFIC about what went wrong: mention trapped pieces, tactical sequences, positional weaknesses, etc.""",
                 ),
                 (
                     "human",
                     """Analyze this chess move:
 
 Position (FEN): {fen}
-Move played: {played_move_san} (Evaluation: {played_move_eval})
-Best move: {best_move_san} (Evaluation: {best_move_eval})
+Active player: {active_player} (This is {active_player}'s turn - they just played this move)
+Move played: {played_move_san} (Evaluation after move: {played_move_eval})
+Best move: {best_move_san} (Evaluation after best move: {best_move_eval})
 Move quality: {label}
 {top_moves_context}
 
-Provide a comment on the user's move following the format:
-- If best move: "This is the best move because..."
-- If slight mistake: "This is a slight mistake because... Best move is "[best_move_san]". But your move is not bad/losing..."
-- If mistake/blunder: "This is a [label] because... Best move is "[best_move_san]". You missed [tactic/opportunity]..."
+**EVALUATION INTERPRETATION:**
+- The evaluation after {active_player}'s move is {played_move_eval}
+- {evaluation_interpretation}
+- Compare this to the best move evaluation: {best_move_eval}
+- The move quality is: {label}
 
-Always be educational and mention specific chess concepts.""",
+**IMPORTANT: The active player is {active_player}. Write your comment from {active_player}'s perspective.**
+
+Provide a SPECIFIC comment on {active_player}'s move ({played_move_san}) following the format:
+- Start with "{active_player} played {played_move_san}"
+- Explain WHY this specific move is {label_lower}
+- If it's a mistake/blunder, explain what specific tactical or positional problem it creates (trapped pieces, weak squares, tactical sequences, etc.)
+- Compare to the best move ({best_move_san}) and explain what {active_player} missed
+- Be specific about chess concepts: mention specific pieces, squares, tactical patterns, or positional weaknesses
+
+Example for a blunder: "Black played Qxb2. This is a blunder because the queen becomes trapped after White's response. Best move is Qb5, which maintains the queen's mobility and creates threats against White's position."
+
+Always be educational and mention specific chess concepts. Always refer to pieces as "{active_player}'s [piece]" or "the opponent's [piece]" to maintain clarity.""",
                 ),
             ]
         )
@@ -94,6 +122,95 @@ Always be educational and mention specific chess concepts.""",
         except Exception as e:
             logger.warning(f"Error converting UCI to SAN: {e}, using UCI")
             return uci_move
+
+    def _get_active_player(self, fen: str) -> str:
+        """
+        Determine whose turn it is from FEN position.
+        
+        Note: The FEN is the position BEFORE the move, so:
+        - If FEN shows "w" (white's turn), white is about to move (white will play the move)
+        - If FEN shows "b" (black's turn), black is about to move (black will play the move)
+
+        Args:
+            fen: Position FEN string (before the move)
+
+        Returns:
+            "White" or "Black" - the player who is about to play (or just played) the move
+        """
+        try:
+            import chess
+            board = chess.Board(fen)
+            # FEN format: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            # The "w" or "b" indicates whose turn it is to move
+            # Since this is BEFORE the move, board.turn tells us who is about to move
+            if board.turn == chess.WHITE:
+                # It's white's turn, so white is about to play (or just played) this move
+                return "White"
+            else:
+                # It's black's turn, so black is about to play (or just played) this move
+                return "Black"
+        except Exception as e:
+            logger.warning(f"Error determining active player from FEN: {e}")
+            return "Unknown"
+
+    def _interpret_evaluation(self, eval_str: str, active_player: str) -> str:
+        """
+        Interpret evaluation from the active player's perspective.
+
+        Args:
+            eval_str: Evaluation string (e.g., "+4.39", "-2.50", "M2")
+            active_player: "White" or "Black" - who just played the move
+
+        Returns:
+            Interpretation string explaining what the evaluation means for the active player
+        """
+        try:
+            from app.services.move_classification_service import MoveClassificationService
+            
+            # Parse evaluation
+            eval_cp = MoveClassificationService.parse_evaluation(eval_str)
+            eval_pawns = eval_cp / 100.0
+            
+            # Check for mate
+            if "M" in eval_str.upper():
+                mate_moves = int(eval_str.replace("M", "").replace("+", "").replace("-", ""))
+                if active_player == "White":
+                    if eval_cp > 0:
+                        return f"White is winning and can checkmate in {mate_moves} moves. This is excellent for White."
+                    else:
+                        return f"Black is winning and can checkmate in {abs(mate_moves)} moves. This is terrible for White."
+                else:  # Black
+                    if eval_cp < 0:
+                        return f"Black is winning and can checkmate in {abs(mate_moves)} moves. This is excellent for Black."
+                    else:
+                        return f"White is winning and can checkmate in {mate_moves} moves. This is terrible for Black."
+            
+            # Interpret from active player's perspective
+            if active_player == "White":
+                if eval_pawns > 2.0:
+                    return f"White has a winning advantage (+{eval_pawns:.2f}). This is excellent for White."
+                elif eval_pawns > 0.5:
+                    return f"White has a significant advantage (+{eval_pawns:.2f}). This is good for White."
+                elif eval_pawns > -0.5:
+                    return f"The position is roughly equal ({eval_pawns:+.2f}). This is acceptable for White."
+                elif eval_pawns > -2.0:
+                    return f"Black has a significant advantage ({eval_pawns:.2f}). This is bad for White."
+                else:
+                    return f"Black has a winning advantage ({eval_pawns:.2f}). This is terrible for White."
+            else:  # Black
+                if eval_pawns < -2.0:
+                    return f"Black has a winning advantage ({eval_pawns:.2f}). This is excellent for Black."
+                elif eval_pawns < -0.5:
+                    return f"Black has a significant advantage ({eval_pawns:.2f}). This is good for Black."
+                elif eval_pawns < 0.5:
+                    return f"The position is roughly equal ({eval_pawns:+.2f}). This is acceptable for Black."
+                elif eval_pawns < 2.0:
+                    return f"White has a significant advantage (+{eval_pawns:.2f}). This is bad for Black."
+                else:
+                    return f"White has a winning advantage (+{eval_pawns:.2f}). This is terrible for Black."
+        except Exception as e:
+            logger.warning(f"Error interpreting evaluation: {e}")
+            return f"Evaluation: {eval_str} (interpret from {active_player}'s perspective)"
 
     async def generate_explanation(
         self,
@@ -127,6 +244,19 @@ Always be educational and mention specific chess concepts.""",
             played_move_san = self._convert_uci_to_san(played_move, fen)
             best_move_san = self._convert_uci_to_san(best_move, fen)
 
+            # Determine whose turn it is (who just played this move)
+            active_player = self._get_active_player(fen)
+
+            # Parse evaluations to provide interpretation
+            played_eval_str = played_move_eval or eval_change.split("->")[-1].strip() if "->" in eval_change else "N/A"
+            best_eval_str = best_move_eval or eval_change.split("->")[0].strip() if "->" in eval_change else "N/A"
+            
+            # Interpret evaluation from the active player's perspective
+            evaluation_interpretation = self._interpret_evaluation(played_eval_str, active_player)
+            
+            # Format label for prompt (lowercase)
+            label_lower = label.lower() if label else "unknown"
+
             # Build top moves context
             top_moves_context = ""
             if top_moves:
@@ -142,13 +272,16 @@ Always be educational and mention specific chess concepts.""",
             result = await self.chain.ainvoke(
                 {
                     "fen": fen,
+                    "active_player": active_player,
                     "played_move_san": played_move_san,
                     "best_move_san": best_move_san,
                     "label": label,
+                    "label_lower": label_lower,
                     "eval_change": eval_change,
                     "top_moves_context": top_moves_context,
-                    "played_move_eval": played_move_eval or eval_change.split("->")[-1].strip() if "->" in eval_change else "N/A",
-                    "best_move_eval": best_move_eval or eval_change.split("->")[0].strip() if "->" in eval_change else "N/A",
+                    "played_move_eval": played_eval_str,
+                    "best_move_eval": best_eval_str,
+                    "evaluation_interpretation": evaluation_interpretation,
                 }
             )
 
@@ -160,8 +293,25 @@ Always be educational and mention specific chess concepts.""",
             return explanation
         except Exception as e:
             logger.error(f"Error generating explanation: {e}")
-            # Fallback explanation
-            return f"This {label.lower()} weakens your position. The best move {best_move} would have been stronger."
+            # Fallback explanation - check if played move is the best move
+            try:
+                played_move_san = self._convert_uci_to_san(played_move, fen)
+                best_move_san = self._convert_uci_to_san(best_move, fen)
+                active_player = self._get_active_player(fen)
+                
+                # If played move is the best move, give positive feedback
+                if played_move == best_move or played_move_san == best_move_san:
+                    return f"{active_player} played {played_move_san}. This is the best move in this position."
+                else:
+                    # Not the best move - explain what was missed
+                    return f"{active_player} played {played_move_san}. This is not the best move. The best move is {best_move_san}, which would have been stronger."
+            except Exception as fallback_error:
+                logger.error(f"Error in fallback explanation: {fallback_error}")
+                # Ultimate fallback - use UCI if SAN conversion fails
+                if played_move == best_move:
+                    return f"This is the best move in this position."
+                else:
+                    return f"This move is not optimal. The best move is {best_move}."
 
     async def explain_move(
         self, game_id: str, ply: int, use_cache: bool = True
@@ -250,7 +400,7 @@ Always be educational and mention specific chess concepts.""",
         self, game_id: str, use_cache: bool = True
     ) -> Dict[int, str]:
         """
-        Generate explanations for all moves in a game.
+        Generate explanations for all moves in a game (parallelized).
 
         Args:
             game_id: Unique game identifier
@@ -269,29 +419,69 @@ Always be educational and mention specific chess concepts.""",
                 .all()
             )
 
-            explanations = {}
+            # Separate cached and uncached moves
+            cached_explanations = {}
+            moves_to_generate = []
+            
             for move_review in move_reviews:
-                # Check cache
                 if use_cache and move_review.explanation:
-                    explanations[move_review.ply] = move_review.explanation
-                    continue
+                    cached_explanations[move_review.ply] = move_review.explanation
+                else:
+                    moves_to_generate.append(move_review.ply)
 
-                # Generate explanation
-                try:
-                    explanation = await self.explain_move(
-                        game_id, move_review.ply, use_cache=False
-                    )
-                    if explanation:
-                        explanations[move_review.ply] = explanation
-                except Exception as e:
-                    logger.error(
-                        f"Error explaining ply {move_review.ply}: {e}, skipping"
-                    )
-                    # Continue with next move
+            if not moves_to_generate:
+                logger.info(
+                    f"All explanations cached for game {game_id} ({len(cached_explanations)} moves)"
+                )
+                return cached_explanations
+
+            # Parallelize explanation generation with concurrency limit
+            concurrency_limit = settings.explanation_concurrency
+            semaphore = asyncio.Semaphore(concurrency_limit)
+            
+            async def explain_with_semaphore(ply: int) -> tuple[int, Optional[str]]:
+                """Generate explanation with semaphore to limit concurrency."""
+                async with semaphore:
+                    try:
+                        explanation = await self.explain_move(
+                            game_id, ply, use_cache=False
+                        )
+                        return (ply, explanation)
+                    except Exception as e:
+                        logger.error(
+                            f"Error explaining ply {ply}: {e}, skipping"
+                        )
+                        return (ply, None)
+
+            # Generate all explanations in parallel
+            logger.info(
+                f"Generating {len(moves_to_generate)} explanations in parallel "
+                f"(concurrency: {concurrency_limit}) for game {game_id}"
+            )
+            
+            tasks = [explain_with_semaphore(ply) for ply in moves_to_generate]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Combine results
+            explanations = cached_explanations.copy()
+            generated_count = 0
+            error_count = 0
+            
+            for result in results:
+                if isinstance(result, Exception):
+                    error_count += 1
+                    logger.error(f"Unexpected error in parallel explanation: {result}")
                     continue
+                
+                ply, explanation = result
+                if explanation:
+                    explanations[ply] = explanation
+                    generated_count += 1
 
             logger.info(
-                f"Generated {len(explanations)} explanations for game {game_id}"
+                f"Generated {generated_count} explanations for game {game_id} "
+                f"({len(cached_explanations)} cached, {error_count} errors, "
+                f"total: {len(explanations)}/{len(move_reviews)})"
             )
             return explanations
         finally:

@@ -149,12 +149,19 @@ async def analyze_game(game_data: GameCreate):
                     "accuracy": r.accuracy,
                 }
                 
-                # Add move_san if available
-                if hasattr(r, 'move_san'):
-                    move_dict["move_san"] = r.move_san
-                
                 # Add top moves and evaluation data from engine analysis
                 if engine_analysis:
+                    # Convert played_move (UCI) to SAN for display
+                    if engine_analysis.played_move:
+                        try:
+                            import chess
+                            board = chess.Board(engine_analysis.fen)
+                            move = chess.Move.from_uci(engine_analysis.played_move)
+                            move_dict["move_san"] = board.san(move)
+                        except Exception as e:
+                            logger.warning(f"Error converting move to SAN: {e}")
+                            move_dict["move_san"] = engine_analysis.played_move  # Fallback to UCI
+                    
                     if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves:
                         move_dict["top_moves"] = engine_analysis.top_moves
                     if hasattr(engine_analysis, 'played_move_eval') and engine_analysis.played_move_eval:
@@ -291,6 +298,17 @@ async def get_game_moves(game_id: str, db: Session = Depends(get_db)):
         
         # Add top moves and evaluation data
         if engine_analysis:
+            # Convert played_move (UCI) to SAN for display
+            if engine_analysis.played_move:
+                try:
+                    import chess
+                    board = chess.Board(engine_analysis.fen)
+                    move = chess.Move.from_uci(engine_analysis.played_move)
+                    review_dict["move_san"] = board.san(move)
+                except Exception as e:
+                    logger.warning(f"Error converting move to SAN: {e}")
+                    review_dict["move_san"] = engine_analysis.played_move  # Fallback to UCI
+            
             if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves:
                 review_dict["top_moves"] = engine_analysis.top_moves
             if hasattr(engine_analysis, 'played_move_eval') and engine_analysis.played_move_eval:

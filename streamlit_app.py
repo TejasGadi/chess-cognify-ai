@@ -46,15 +46,15 @@ if "book_chat_sessions" not in st.session_state:
 
 
 def api_request(
-    method: str, endpoint: str, data: Optional[Dict] = None, files: Optional[Dict] = None, timeout: float = 300.0
+    method: str, endpoint: str, data: Optional[Dict] = None, files: Optional[Dict] = None, timeout: float = 1800.0
 ) -> Optional[Dict]:
     """Make API request and return response."""
     url = f"{st.session_state.API_BASE_URL}{endpoint}"
     
     try:
-        # Use longer timeout for analysis endpoint
+        # Use longer timeout for analysis endpoint (30 minutes for long games)
         if "/analyze" in endpoint:
-            timeout = 300.0  # 5 minutes for analysis
+            timeout = 1800.0  # 30 minutes for analysis (allows for games with 50+ moves)
         
         with httpx.Client(timeout=timeout) as client:
             if method == "GET":
@@ -270,7 +270,7 @@ def page_games():
                         result = api_request("POST", "/api/games/analyze", {
                             "pgn": pgn_for_analysis,
                             "metadata": metadata
-                        }, timeout=300.0)
+                        }, timeout=1800.0)
                         
                         # api_request returns None on error, and errors are already displayed
                         if result is None:
