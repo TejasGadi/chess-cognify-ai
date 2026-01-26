@@ -249,12 +249,20 @@ def page_games():
         # Analyze button
         st.markdown("---")
         
-        analyze_button = st.button("🚀 Analyze Game", type="primary", use_container_width=True)
+        # Initialize analysis state
+        if "analysis_in_progress" not in st.session_state:
+            st.session_state.analysis_in_progress = False
         
-        if analyze_button:
+        analyze_button = st.button("🚀 Analyze Game", type="primary", use_container_width=True, disabled=st.session_state.analysis_in_progress)
+        
+        if analyze_button or st.session_state.analysis_in_progress:
             if not pgn_for_analysis:
                 st.error("❌ Please provide PGN data or select a Game ID")
+                st.session_state.analysis_in_progress = False
             else:
+                # Set analysis state
+                st.session_state.analysis_in_progress = True
+                
                 # Show loading immediately
                 with st.spinner("🔄 Analyzing game... This may take 1-2 minutes. Please wait and don't close this page."):
                     try:
@@ -267,6 +275,7 @@ def page_games():
                         # api_request returns None on error, and errors are already displayed
                         if result is None:
                             # Error was already shown by api_request
+                            st.session_state.analysis_in_progress = False
                             st.stop()
                         
                         # Validate that analysis actually succeeded
@@ -284,6 +293,7 @@ def page_games():
                             st.info("💡 **Fix:**")
                             st.code("brew install stockfish  # macOS\n# Or set STOCKFISH_PATH=/path/to/stockfish in .env file", language="bash")
                             st.write("Then restart your FastAPI server.")
+                            st.session_state.analysis_in_progress = False
                         elif accuracy == 0 and moves_count > 0:
                             # This might be a valid game with 0% accuracy (very bad game)
                             st.warning("⚠️ Analysis completed but accuracy is 0%. This might indicate an issue.")
@@ -297,6 +307,7 @@ def page_games():
                                 st.metric("Estimated Rating", summary.get('estimated_rating', 400))
                             with col3:
                                 st.metric("Moves Analyzed", moves_count)
+                            st.session_state.analysis_in_progress = False
                         else:
                             # Success case
                             st.success("✅ Analysis complete!")
@@ -325,10 +336,12 @@ def page_games():
                                 del st.session_state.current_board
                             
                             st.info("💡 Switch to the 'Review' tab to see detailed move-by-move analysis")
+                            st.session_state.analysis_in_progress = False
                             
                     except Exception as e:
                         st.error(f"❌ Error during analysis: {str(e)}")
                         st.info("💡 Check your backend server logs for more details. Make sure Stockfish is installed and accessible.")
+                        st.session_state.analysis_in_progress = False
 
     with tab2:
         st.subheader("Game Review")
@@ -348,95 +361,166 @@ def page_games():
 
             with review_tabs[1]:
                 # Move-by-move analysis with board
-                if st.button("Load Moves"):
+                # Initialize session state keys
+                if f"review_moves_{game_id}" not in st.session_state:
+                    st.session_state[f"review_moves_{game_id}"] = None
+                if f"review_game_data_{game_id}" not in st.session_state:
+                    st.session_state[f"review_game_data_{game_id}"] = None
+                if "review_move_number" not in st.session_state:
+                    st.session_state.review_move_number = 0
+                
+                # Load button
+                if st.button("Load Moves", key=f"load_moves_{game_id}"):
                     with st.spinner("Loading moves..."):
                         moves = api_request("GET", f"/api/games/{game_id}/moves")
                         game_data = api_request("GET", f"/api/games/{game_id}")
                         
                         if moves and game_data:
-                            # Initialize board navigation
-                            if "review_move_number" not in st.session_state:
-                                st.session_state.review_move_number = 0
+                            st.session_state[f"review_moves_{game_id}"] = moves
+                            st.session_state[f"review_game_data_{game_id}"] = game_data
+                            st.session_state.review_move_number = 0
+                            st.rerun()
+                
+                # Display board if data is loaded (persists across reruns)
+                moves = st.session_state[f"review_moves_{game_id}"]
+                game_data = st.session_state[f"review_game_data_{game_id}"]
+                
+                if moves and game_data:
+                    pgn = game_data.get("pgn", "")
+                    board = pgn_to_board(pgn, st.session_state.review_move_number)
+                    
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown("### Chess Board")
+                        if board:
+                            # Get last move if available
+                            last_move = None
+                            if st.session_state.review_move_number > 0:
+                                try:
+                                    game = chess.pgn.read_game(StringIO(pgn))
+                                    if game:
+                                        moves_list = list(game.mainline_moves())
+                                        if st.session_state.review_move_number > 0 and st.session_state.review_move_number <= len(moves_list):
+                                            last_move = moves_list[st.session_state.review_move_number - 1]
+                                except:
+                                    pass
                             
-                            pgn = game_data.get("pgn", "")
-                            board = pgn_to_board(pgn, st.session_state.review_move_number)
+                            board_html = render_chess_board(board, last_move=last_move, size=450)
+                            st.markdown(board_html, unsafe_allow_html=True)
                             
-                            col1, col2 = st.columns([2, 1])
-                            
-                            with col1:
-                                st.markdown("### Chess Board")
-                                if board:
-                                    # Get last move if available
-                                    last_move = None
+                            # Navigation controls
+                            nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
+                            with nav_col1:
+                                if st.button("⏮️ Start", key="nav_start"):
+                                    st.session_state.review_move_number = 0
+                                    st.rerun()
+                            with nav_col2:
+                                if st.button("⏪ Previous", key="nav_prev"):
                                     if st.session_state.review_move_number > 0:
-                                        try:
-                                            game = chess.pgn.read_game(StringIO(pgn))
-                                            if game:
-                                                moves_list = list(game.mainline_moves())
-                                                if st.session_state.review_move_number > 0 and st.session_state.review_move_number <= len(moves_list):
-                                                    last_move = moves_list[st.session_state.review_move_number - 1]
-                                        except:
-                                            pass
-                                    
-                                    board_html = render_chess_board(board, last_move=last_move, size=450)
-                                    st.markdown(board_html, unsafe_allow_html=True)
-                                    
-                                    # Navigation controls
-                                    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns(4)
-                                    with nav_col1:
-                                        if st.button("⏮️ Start", key="nav_start"):
-                                            st.session_state.review_move_number = 0
-                                            st.rerun()
-                                    with nav_col2:
-                                        if st.button("⏪ Previous", key="nav_prev"):
-                                            if st.session_state.review_move_number > 0:
-                                                st.session_state.review_move_number -= 1
-                                                st.rerun()
-                                    with nav_col3:
-                                        if st.button("⏩ Next", key="nav_next"):
-                                            max_moves = len(moves)
-                                            if st.session_state.review_move_number < max_moves:
-                                                st.session_state.review_move_number += 1
-                                                st.rerun()
-                                    with nav_col4:
-                                        if st.button("⏭️ End", key="nav_end"):
-                                            st.session_state.review_move_number = len(moves)
-                                            st.rerun()
-                                    
-                                    st.caption(f"Move {st.session_state.review_move_number} of {len(moves)}")
+                                        st.session_state.review_move_number -= 1
+                                        st.rerun()
+                            with nav_col3:
+                                if st.button("⏩ Next", key="nav_next"):
+                                    max_moves = len(moves)
+                                    if st.session_state.review_move_number < max_moves:
+                                        st.session_state.review_move_number += 1
+                                        st.rerun()
+                            with nav_col4:
+                                if st.button("⏭️ End", key="nav_end"):
+                                    st.session_state.review_move_number = len(moves)
+                                    st.rerun()
                             
-                            with col2:
-                                st.markdown("### Move Analysis")
-                                
-                                # Current move info
-                                if st.session_state.review_move_number < len(moves):
-                                    current_move = moves[st.session_state.review_move_number]
-                                    st.markdown(f"**Move {current_move.get('ply', 'N/A')}**")
-                                    st.write(f"**Move**: {current_move.get('move_san', 'N/A')}")
-                                    st.write(f"**Label**: {current_move.get('label', 'N/A')}")
-                                    st.write(f"**Accuracy**: {current_move.get('accuracy', 'N/A')}%")
-                                    
-                                    if current_move.get('centipawn_loss'):
-                                        st.write(f"**Centipawn Loss**: {current_move.get('centipawn_loss')}")
-                                    
-                                    if current_move.get('explanation'):
-                                        st.markdown("**Explanation:**")
-                                        st.info(current_move.get('explanation'))
-                                
-                                st.markdown("---")
-                                st.markdown("### All Moves")
-                                st.dataframe(moves, use_container_width=True, height=400)
+                            # Show position caption
+                            if st.session_state.review_move_number == 0:
+                                st.caption("Initial Position")
+                            else:
+                                st.caption(f"After Move {st.session_state.review_move_number} of {len(moves)}")
+                    
+                    with col2:
+                        st.markdown("### Move Analysis")
+                        
+                        # Current move info - only show when there are moves on the board
+                        # When review_move_number = 0, board shows initial position, so no move analysis
+                        # When review_move_number = 1, board shows after move 1, so show move 1 (index 0)
+                        if st.session_state.review_move_number > 0 and st.session_state.review_move_number <= len(moves):
+                            # Move index is review_move_number - 1 (move 1 is at index 0)
+                            move_index = st.session_state.review_move_number - 1
+                            current_move = moves[move_index]
                             
-                            # Show mistakes
-                            mistakes = [m for m in moves if m.get("label") in ["Inaccuracy", "Mistake", "Blunder"]]
-                            if mistakes:
-                                st.markdown("---")
-                                st.subheader("Key Mistakes")
-                                for move in mistakes:
-                                    with st.expander(f"Move {move['ply']}: {move['label']} - {move.get('move_san', 'N/A')}"):
-                                        st.write(f"**Centipawn Loss**: {move.get('centipawn_loss', 'N/A')}")
-                                        if move.get("explanation"):
-                                            st.write(f"**Explanation**: {move['explanation']}")
+                            # Move header
+                            st.markdown(f"#### Move {current_move.get('ply', 'N/A')}")
+                            
+                            # Move quality and evaluation
+                            metric_col1, metric_col2 = st.columns(2)
+                            with metric_col1:
+                                label = current_move.get('label', 'N/A')
+                                label_emoji = {
+                                    'Best': '✅',
+                                    'Good': '👍',
+                                    'Inaccuracy': '⚠️',
+                                    'Mistake': '❌',
+                                    'Blunder': '💥'
+                                }.get(label, '')
+                                st.metric("Quality", f"{label_emoji} {label}")
+                            
+                            with metric_col2:
+                                eval_after = current_move.get('eval_after', 'N/A')
+                                st.metric("Evaluation", eval_after)
+                            
+                            st.markdown("---")
+                            
+                            # Move played
+                            move_san = current_move.get('move_san', 'N/A')
+                            st.markdown(f"**Move Played**: `{move_san}`")
+                            
+                            # Top 5 Engine Moves
+                            top_moves = current_move.get('top_moves', [])
+                            if top_moves:
+                                st.markdown("**Top Engine Moves in this position:**")
+                                for i, top_move in enumerate(top_moves[:5], 1):
+                                    move_san_top = top_move.get('move_san', top_move.get('move', 'N/A'))
+                                    eval_str = top_move.get('eval_str', 'N/A')
+                                    
+                                    # Highlight if this is the played move
+                                    is_played = move_san_top == move_san
+                                    prefix = "👉 " if is_played else f"{i}. "
+                                    color = "🟢" if is_played else ""
+                                    
+                                    st.markdown(f"{color} {prefix}`{move_san_top}` - **{eval_str}**")
+                            
+                            st.markdown("---")
+                            
+                            # AI Comment on the move (always shown)
+                            explanation = current_move.get('explanation')
+                            if explanation:
+                                st.markdown("**AI Comment:**")
+                                st.info(explanation)
+                            else:
+                                st.warning("⚠️ Analysis comment not available for this move")
+                        else:
+                            # Show empty state when at initial position
+                            if st.session_state.review_move_number == 0:
+                                st.info("👆 Click 'Next' to see the first move analysis")
+                            else:
+                                st.warning("⚠️ No move data available for this position")
+                        
+                        st.markdown("---")
+                        st.markdown("### All Moves")
+                        st.dataframe(moves, use_container_width=True, height=400)
+                    
+                    # Show mistakes
+                    mistakes = [m for m in moves if m.get("label") in ["Inaccuracy", "Mistake", "Blunder"]]
+                    if mistakes:
+                        st.markdown("---")
+                        st.subheader("Key Mistakes")
+                        for move in mistakes:
+                            with st.expander(f"Move {move['ply']}: {move['label']} - {move.get('move_san', 'N/A')}"):
+                                st.write(f"**Centipawn Loss**: {move.get('centipawn_loss', 'N/A')}")
+                                if move.get("explanation"):
+                                    st.write(f"**Explanation**: {move['explanation']}")
+                elif moves is None and game_data is None:
+                    st.info("👆 Click 'Load Moves' to load the game analysis")
 
             with review_tabs[2]:
                 # Game summary
@@ -730,7 +814,7 @@ def main():
     # Sidebar navigation
     st.sidebar.title("♟️ Chess Cognify AI")
     st.sidebar.markdown("---")
-    
+     
     page = st.sidebar.radio(
         "Navigation",
         ["Games", "Books", "Status"],

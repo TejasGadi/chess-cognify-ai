@@ -3,7 +3,7 @@ Stockfish engine service wrapper for UCI protocol communication.
 """
 import chess
 import chess.engine
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import asyncio
 from app.config import settings
 from app.utils.logger import get_logger
@@ -101,7 +101,7 @@ class StockfishService:
 
             # Convert score to centipawns
             # python-chess 1.0+ uses PovScore with .white()/.black() methods
-            # .white() returns centipawns from white's perspective
+            # .white() returns a Cp object, which has .score() to get the integer value
             if score.is_mate():
                 # Mate score: convert to large centipawn value
                 mate_score = score.mate()
@@ -109,16 +109,32 @@ class StockfishService:
                 score_str = f"M{mate_score}" if mate_score else "M0"
             else:
                 # Normal score in centipawns
-                # Use .white() to get centipawns from white's perspective
+                # Use .white().score() to get centipawns as integer from white's perspective
                 # This works for python-chess 1.0+
-                centipawns = score.white()
+                centipawns = score.white().score()
                 # Convert to pawns for display
                 pawns = centipawns / 100.0
                 score_str = f"{pawns:+.2f}"
 
             # Get principal variation (best line)
+            # PV moves need to be converted to SAN by applying them sequentially
             pv = info.get("pv", [])
-            pv_moves = [board.san(move) for move in pv] if pv else []
+            pv_moves = []
+            if pv:
+                pv_board = board.copy()
+                for move in pv:
+                    try:
+                        if move in pv_board.legal_moves:
+                            pv_moves.append(pv_board.san(move))
+                            pv_board.push(move)
+                        else:
+                            # If move is not legal, use UCI notation as fallback
+                            pv_moves.append(move.uci())
+                            logger.warning(f"PV move {move.uci()} not legal in position, using UCI")
+                    except Exception as e:
+                        # Fallback to UCI if SAN conversion fails
+                        pv_moves.append(move.uci())
+                        logger.warning(f"Error converting PV move to SAN: {e}, using UCI: {move.uci()}")
 
             return {
                 "score": centipawns,
@@ -164,7 +180,13 @@ class StockfishService:
 
             best_move = result.move
             move_uci = best_move.uci()
-            move_san = board.san(best_move)
+            # Ensure move is legal before converting to SAN
+            if best_move in board.legal_moves:
+                move_san = board.san(best_move)
+            else:
+                # Fallback to UCI if move is not legal (shouldn't happen, but safety check)
+                move_san = move_uci
+                logger.warning(f"Best move {move_uci} not legal in position, using UCI notation")
 
             # Evaluate position after best move
             board_copy = board.copy()
@@ -184,11 +206,125 @@ class StockfishService:
             logger.error(f"Error getting best move: {e}")
             raise
 
+    async def get_top_moves(
+        self, board: chess.Board, top_n: int = 5, depth: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get top N moves for a position with their evaluations.
+
+        Args:
+            board: chess.Board object representing the position
+            top_n: Number of top moves to return (default: 5)
+            depth: Analysis depth (uses default if None)
+
+        Returns:
+            List of dictionaries with move info:
+            [
+                {
+                    "move": str,  # UCI format
+                    "move_san": str,  # SAN notation
+                    "eval": float,  # Centipawns
+                    "eval_str": str,  # Human-readable
+                    "rank": int,  # 1 = best, 2 = second best, etc.
+                },
+                ...
+            ]
+        """
+        engine = await self._get_engine()
+        analysis_depth = depth or self.depth
+
+        try:
+            # Use analyse with multipv parameter directly (not via configure)
+            # When multipv > 1, analyse returns a list of info dicts
+            info = await asyncio.wait_for(
+                engine.analyse(board, chess.engine.Limit(depth=analysis_depth), multipv=top_n),
+                timeout=self.timeout,
+            )
+
+            top_moves = []
+            
+            # When multipv > 1, analyse returns a list of info dicts
+            # Each dict represents one of the top moves
+            if isinstance(info, list):
+                for idx, move_info in enumerate(info[:top_n]):
+                    score = move_info.get("score")
+                    pv = move_info.get("pv", [])
+                    
+                    if score is None or not pv:
+                        continue
+                    
+                    move = pv[0]  # First move in principal variation
+                    move_uci = move.uci()
+                    
+                    # Convert to SAN
+                    try:
+                        if move in board.legal_moves:
+                            move_san = board.san(move)
+                        else:
+                            move_san = move_uci
+                    except:
+                        move_san = move_uci
+                    
+                    # Get evaluation
+                    if score.is_mate():
+                        mate_score = score.mate()
+                        centipawns = 10000 if mate_score > 0 else -10000
+                        eval_str = f"M{mate_score}" if mate_score else "M0"
+                    else:
+                        centipawns = score.white().score()
+                        pawns = centipawns / 100.0
+                        eval_str = f"{pawns:+.2f}"
+                    
+                    top_moves.append({
+                        "move": move_uci,
+                        "move_san": move_san,
+                        "eval": centipawns,
+                        "eval_str": eval_str,
+                        "rank": idx + 1,
+                    })
+            else:
+                # Fallback: single analysis result (multipv might not be supported or only 1 move)
+                pv = info.get("pv", [])
+                if pv:
+                    move = pv[0]
+                    move_uci = move.uci()
+                    try:
+                        move_san = board.san(move) if move in board.legal_moves else move_uci
+                    except:
+                        move_san = move_uci
+                    score = info.get("score")
+                    
+                    if score:
+                        if score.is_mate():
+                            mate_score = score.mate()
+                            centipawns = 10000 if mate_score > 0 else -10000
+                            eval_str = f"M{mate_score}" if mate_score else "M0"
+                        else:
+                            centipawns = score.white().score()
+                            pawns = centipawns / 100.0
+                            eval_str = f"{pawns:+.2f}"
+                        
+                        top_moves.append({
+                            "move": move_uci,
+                            "move_san": move_san,
+                            "eval": centipawns,
+                            "eval_str": eval_str,
+                            "rank": 1,
+                        })
+
+            return top_moves
+        except asyncio.TimeoutError:
+            logger.warning(f"Top moves analysis timed out after {self.timeout}s")
+            raise TimeoutError(f"Engine analysis exceeded timeout of {self.timeout}s")
+        except Exception as e:
+            logger.error(f"Error getting top moves: {e}")
+            raise
+
     async def analyze_move(
         self, board: chess.Board, move: chess.Move, depth: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Analyze a specific move in a position.
+        Analyze a specific move in a position with top 5 alternative moves.
 
         Args:
             board: chess.Board object representing the position before move
@@ -206,6 +342,18 @@ class StockfishService:
                 "best_move_san": str,
                 "eval_best": float,
                 "eval_best_str": str,
+                "top_moves": [  # Top 5 moves with evaluations
+                    {
+                        "move": str,
+                        "move_san": str,
+                        "eval": float,
+                        "eval_str": str,
+                        "rank": int,
+                    },
+                    ...
+                ],
+                "played_move_eval": float,  # Evaluation of the played move
+                "played_move_eval_str": str,
             }
         """
         analysis_depth = depth or self.depth
@@ -221,8 +369,23 @@ class StockfishService:
             # Evaluate position after move
             eval_after = await self.evaluate_position(board_copy, analysis_depth)
 
-            # Get best move for original position
-            best_move_info = await self.get_best_move(board, analysis_depth)
+            # Get top 5 moves for original position
+            top_moves = await self.get_top_moves(board, top_n=5, depth=analysis_depth)
+
+            # Get best move info (first in top_moves, or fallback to get_best_move)
+            if top_moves:
+                best_move_info = top_moves[0]
+            else:
+                # Fallback if top_moves is empty
+                best_move_info = await self.get_best_move(board, analysis_depth)
+            
+            # Find played move in top moves to get its rank
+            played_move_uci = move.uci()
+            played_move_rank = None
+            for top_move in top_moves:
+                if top_move["move"] == played_move_uci:
+                    played_move_rank = top_move["rank"]
+                    break
 
             return {
                 "eval_before": eval_before["score"],
@@ -233,6 +396,10 @@ class StockfishService:
                 "best_move_san": best_move_info["move_san"],
                 "eval_best": best_move_info["eval"],
                 "eval_best_str": best_move_info["eval_str"],
+                "top_moves": top_moves,
+                "played_move_eval": eval_after["score"],
+                "played_move_eval_str": eval_after["score_str"],
+                "played_move_rank": played_move_rank,
             }
         except Exception as e:
             logger.error(f"Error analyzing move: {e}")

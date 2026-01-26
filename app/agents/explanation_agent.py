@@ -17,8 +17,8 @@ logger = get_logger(__name__)
 class ExplanationAgent:
     """Agent for generating move explanations using Groq LLM."""
 
-    # Labels that require explanations
-    EXPLANATION_LABELS = ["Inaccuracy", "Mistake", "Blunder"]
+    # Generate explanations for ALL moves (not just mistakes)
+    EXPLANATION_LABELS = ["Best", "Good", "Inaccuracy", "Mistake", "Blunder"]
 
     def __init__(self):
         """Initialize explanation agent with Groq LLM."""
@@ -40,25 +40,35 @@ class ExplanationAgent:
             [
                 (
                     "system",
-                    """You are a chess coach explaining moves to a student. Your explanations should be:
-- Clear and educational
-- Focus on chess concepts (piece activity, king safety, tactics, strategy)
+                    """You are a chess coach providing move analysis. Your comments should be:
+- Clear and educational, focusing on chess concepts (piece activity, king safety, tactics, strategy)
 - Avoid engine jargon (no centipawns, no depth, no variations)
 - Maximum 4 sentences
-- Explain why the best move is better, not just what's wrong with the played move
-- Use Standard Algebraic Notation (SAN) for moves""",
+- Use Standard Algebraic Notation (SAN) for moves
+- Format your response as a natural comment on the user's move
+
+Comment format:
+- If it's the best move: "This is the best move because [reason]"
+- If it's a slight mistake: "This is a slight mistake because [reason]. Best move is "[best_move]". But your move is not bad/losing, [context]"
+- If it's a mistake/blunder: "This is a [mistake/blunder] because [reason]. Best move is "[best_move]". You missed [tactic/opportunity/threat]"
+- Always mention the best move explicitly""",
                 ),
                 (
                     "human",
                     """Analyze this chess move:
 
 Position (FEN): {fen}
-Move played: {played_move_san}
-Best move: {best_move_san}
+Move played: {played_move_san} (Evaluation: {played_move_eval})
+Best move: {best_move_san} (Evaluation: {best_move_eval})
 Move quality: {label}
-Evaluation change: {eval_change}
+{top_moves_context}
 
-Explain why {best_move_san} is better than {played_move_san}. Focus on chess principles and what the student should learn from this mistake.""",
+Provide a comment on the user's move following the format:
+- If best move: "This is the best move because..."
+- If slight mistake: "This is a slight mistake because... Best move is "[best_move_san]". But your move is not bad/losing..."
+- If mistake/blunder: "This is a [label] because... Best move is "[best_move_san]". You missed [tactic/opportunity]..."
+
+Always be educational and mention specific chess concepts.""",
                 ),
             ]
         )
@@ -92,6 +102,9 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
         best_move: str,
         label: str,
         eval_change: str,
+        top_moves: Optional[List[Dict[str, Any]]] = None,
+        played_move_eval: Optional[str] = None,
+        best_move_eval: Optional[str] = None,
     ) -> str:
         """
         Generate explanation for a move.
@@ -102,6 +115,9 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
             best_move: Best move (UCI format)
             label: Move classification (Inaccuracy/Mistake/Blunder)
             eval_change: Evaluation change description
+            top_moves: List of top 5 moves with evaluations
+            played_move_eval: Evaluation of played move
+            best_move_eval: Evaluation of best move
 
         Returns:
             Explanation text (max 4 sentences)
@@ -111,6 +127,17 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
             played_move_san = self._convert_uci_to_san(played_move, fen)
             best_move_san = self._convert_uci_to_san(best_move, fen)
 
+            # Build top moves context
+            top_moves_context = ""
+            if top_moves:
+                top_moves_context = "Top engine moves in this position:\n"
+                for i, move_info in enumerate(top_moves[:5], 1):
+                    move_san = move_info.get("move_san", move_info.get("move", "N/A"))
+                    eval_str = move_info.get("eval_str", "N/A")
+                    top_moves_context += f"{i}. {move_san} (Evaluation: {eval_str})\n"
+            else:
+                top_moves_context = "Top engine moves: Not available"
+
             # Invoke chain with structured output
             result = await self.chain.ainvoke(
                 {
@@ -119,6 +146,9 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
                     "best_move_san": best_move_san,
                     "label": label,
                     "eval_change": eval_change,
+                    "top_moves_context": top_moves_context,
+                    "played_move_eval": played_move_eval or eval_change.split("->")[-1].strip() if "->" in eval_change else "N/A",
+                    "best_move_eval": best_move_eval or eval_change.split("->")[0].strip() if "->" in eval_change else "N/A",
                 }
             )
 
@@ -167,9 +197,8 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
             if use_cache and move_review.explanation:
                 return move_review.explanation
 
-            # Check if move needs explanation
-            if move_review.label not in self.EXPLANATION_LABELS:
-                return None
+            # Generate explanation for all moves
+            # (EXPLANATION_LABELS now includes all labels)
 
             # Get engine analysis for context
             engine_analysis = (
@@ -187,14 +216,21 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
                 )
                 return None
 
-            # Generate explanation
+            # Generate explanation with top moves data
             eval_change = f"{engine_analysis.eval_before} -> {engine_analysis.eval_after}"
+            top_moves = engine_analysis.top_moves if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves else None
+            played_move_eval = engine_analysis.played_move_eval if hasattr(engine_analysis, 'played_move_eval') else None
+            best_move_eval = engine_analysis.eval_best
+            
             explanation = await self.generate_explanation(
                 fen=engine_analysis.fen,
                 played_move=engine_analysis.played_move,
                 best_move=engine_analysis.best_move,
                 label=move_review.label,
                 eval_change=eval_change,
+                top_moves=top_moves,
+                played_move_eval=played_move_eval,
+                best_move_eval=best_move_eval,
             )
 
             # Update move review with explanation
@@ -214,7 +250,7 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
         self, game_id: str, use_cache: bool = True
     ) -> Dict[int, str]:
         """
-        Generate explanations for all moves that need them in a game.
+        Generate explanations for all moves in a game.
 
         Args:
             game_id: Unique game identifier
@@ -225,13 +261,10 @@ Explain why {best_move_san} is better than {played_move_san}. Focus on chess pri
         """
         db = SessionLocal()
         try:
-            # Get all moves that need explanations
+            # Get all moves (generate explanations for all moves)
             move_reviews = (
                 db.query(MoveReview)
-                .filter(
-                    MoveReview.game_id == game_id,
-                    MoveReview.label.in_(self.EXPLANATION_LABELS),
-                )
+                .filter(MoveReview.game_id == game_id)
                 .order_by(MoveReview.ply)
                 .all()
             )

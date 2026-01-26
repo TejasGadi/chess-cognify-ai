@@ -14,8 +14,12 @@ logger = get_logger(__name__)
 class MoveClassificationService:
     """Service for classifying moves based on evaluation deltas."""
 
-    # Classification thresholds (in pawns)
-    THRESHOLD_EXCELLENT = -0.15
+    # Classification thresholds (in pawns) - chess.com style
+    # Best: played move = best move (delta = 0)
+    # Good: delta >= -0.5 pawns
+    # Inaccuracy: delta >= -1.0 pawns
+    # Mistake: delta >= -2.0 pawns
+    # Blunder: delta < -2.0 pawns
     THRESHOLD_GOOD = -0.5
     THRESHOLD_INACCURACY = -1.0
     THRESHOLD_MISTAKE = -2.0
@@ -89,7 +93,7 @@ class MoveClassificationService:
         Returns:
             Dictionary with classification:
             {
-                "label": str,  # Best, Excellent, Good, Inaccuracy, Mistake, Blunder
+                "label": str,  # Best, Good, Inaccuracy, Mistake, Blunder
                 "centipawn_loss": int,
                 "delta": float,  # In centipawns
             }
@@ -110,10 +114,8 @@ class MoveClassificationService:
         # Convert to pawns for threshold comparison
         delta_pawns = delta_cp / 100.0
 
-        # Classify based on thresholds
-        if delta_pawns >= MoveClassificationService.THRESHOLD_EXCELLENT:
-            label = "Excellent"
-        elif delta_pawns >= MoveClassificationService.THRESHOLD_GOOD:
+        # Classify based on thresholds (chess.com style: Best, Good, Inaccuracy, Mistake, Blunder)
+        if delta_pawns >= MoveClassificationService.THRESHOLD_GOOD:
             label = "Good"
         elif delta_pawns >= MoveClassificationService.THRESHOLD_INACCURACY:
             label = "Inaccuracy"

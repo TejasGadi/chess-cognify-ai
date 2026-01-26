@@ -80,6 +80,9 @@ class EngineAnalysisService:
                 "eval_before": str(analysis["eval_before_str"]),
                 "eval_after": str(analysis["eval_after_str"]),
                 "eval_best": str(analysis["eval_best_str"]),
+                "top_moves": analysis.get("top_moves", []),
+                "played_move_eval": str(analysis.get("played_move_eval_str", analysis["eval_after_str"])),
+                "played_move_rank": analysis.get("played_move_rank"),
             }
 
             # Cache the result
@@ -166,6 +169,13 @@ class EngineAnalysisService:
                     existing.eval_before = analysis["eval_before"]
                     existing.eval_after = analysis["eval_after"]
                     existing.eval_best = analysis["eval_best"]
+                    # Update top moves data if available
+                    if "top_moves" in analysis:
+                        existing.top_moves = analysis["top_moves"]
+                    if "played_move_eval" in analysis:
+                        existing.played_move_eval = analysis["played_move_eval"]
+                    if "played_move_rank" in analysis:
+                        existing.played_move_rank = analysis["played_move_rank"]
                 else:
                     # Create new record
                     db_analysis = EngineAnalysis(
@@ -177,6 +187,9 @@ class EngineAnalysisService:
                         eval_before=analysis["eval_before"],
                         eval_after=analysis["eval_after"],
                         eval_best=analysis["eval_best"],
+                        top_moves=analysis.get("top_moves"),
+                        played_move_eval=analysis.get("played_move_eval"),
+                        played_move_rank=analysis.get("played_move_rank"),
                     )
                     db.add(db_analysis)
 

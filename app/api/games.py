@@ -11,7 +11,7 @@ from app.schemas.game import (
     EngineAnalysisResponse,
     GameSummaryResponse,
 )
-from app.models.game import Game
+from app.models.game import Game, EngineAnalysis
 from app.models.base import get_db
 from app.agents.supervisor_agent import SupervisorAgent
 from app.agents.state import GameReviewInput
@@ -128,9 +128,19 @@ async def analyze_game(game_data: GameCreate):
                     detail="Game analysis incomplete - summary not generated. Analysis may have failed.",
                 )
             
-            # Build moves list with move_san if available
+            # Build moves list with top moves data from engine analysis
             moves_list = []
             for r in move_reviews:
+                # Get corresponding engine analysis for top moves
+                engine_analysis = (
+                    db.query(EngineAnalysis)
+                    .filter(
+                        EngineAnalysis.game_id == review_output.game_id,
+                        EngineAnalysis.ply == r.ply,
+                    )
+                    .first()
+                )
+                
                 move_dict = {
                     "ply": r.ply,
                     "label": r.label,
@@ -138,9 +148,18 @@ async def analyze_game(game_data: GameCreate):
                     "explanation": r.explanation,
                     "accuracy": r.accuracy,
                 }
-                # Add move_san if the model has it
+                
+                # Add move_san if available
                 if hasattr(r, 'move_san'):
                     move_dict["move_san"] = r.move_san
+                
+                # Add top moves and evaluation data from engine analysis
+                if engine_analysis:
+                    if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves:
+                        move_dict["top_moves"] = engine_analysis.top_moves
+                    if hasattr(engine_analysis, 'played_move_eval') and engine_analysis.played_move_eval:
+                        move_dict["eval_after"] = engine_analysis.played_move_eval
+                
                 moves_list.append(move_dict)
 
             return GameReviewResponse(
@@ -249,7 +268,37 @@ async def get_game_moves(game_id: str, db: Session = Depends(get_db)):
         .all()
     )
 
-    return [MoveReviewResponse.model_validate(r) for r in move_reviews]
+    # Enrich move reviews with top moves data from engine analysis
+    enriched_reviews = []
+    for r in move_reviews:
+        # Get corresponding engine analysis
+        engine_analysis = (
+            db.query(EngineAnalysis)
+            .filter(
+                EngineAnalysis.game_id == game_id,
+                EngineAnalysis.ply == r.ply,
+            )
+            .first()
+        )
+        
+        review_dict = {
+            "ply": r.ply,
+            "label": r.label,
+            "centipawn_loss": r.centipawn_loss,
+            "explanation": r.explanation,
+            "accuracy": r.accuracy,
+        }
+        
+        # Add top moves and evaluation data
+        if engine_analysis:
+            if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves:
+                review_dict["top_moves"] = engine_analysis.top_moves
+            if hasattr(engine_analysis, 'played_move_eval') and engine_analysis.played_move_eval:
+                review_dict["eval_after"] = engine_analysis.played_move_eval
+        
+        enriched_reviews.append(MoveReviewResponse.model_validate(review_dict))
+    
+    return enriched_reviews
 
 
 @router.get("/{game_id}/summary", response_model=GameSummaryResponse)

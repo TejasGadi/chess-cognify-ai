@@ -33,6 +33,9 @@ class EngineAnalysis(Base):
     eval_before = Column(String, nullable=False)  # Store as string (e.g., "+0.4")
     eval_after = Column(String, nullable=False)
     eval_best = Column(String, nullable=False)
+    top_moves = Column(JSON, nullable=True)  # Top 5 moves with evaluations: [{"move": "...", "move_san": "...", "eval": ..., "eval_str": "...", "rank": ...}, ...]
+    played_move_eval = Column(String, nullable=True)  # Evaluation of played move
+    played_move_rank = Column(Integer, nullable=True)  # Rank of played move in top moves (1-5, or None if not in top 5)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (

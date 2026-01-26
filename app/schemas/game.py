@@ -41,6 +41,15 @@ class GameResponse(BaseModel):
         return data
 
 
+class TopMoveInfo(BaseModel):
+    """Schema for a single top move."""
+    move: str  # UCI format
+    move_san: str  # SAN notation
+    eval: float  # Centipawns
+    eval_str: str  # Human-readable
+    rank: int  # 1 = best, 2 = second best, etc.
+
+
 class EngineAnalysisResponse(BaseModel):
     """Schema for engine analysis per move."""
 
@@ -51,9 +60,22 @@ class EngineAnalysisResponse(BaseModel):
     eval_before: str
     eval_after: str
     eval_best: str
+    top_moves: Optional[List[TopMoveInfo]] = None  # Top 5 moves with evaluations
+    played_move_eval: Optional[str] = None  # Evaluation of played move
+    played_move_rank: Optional[int] = None  # Rank of played move in top moves
 
     class Config:
         from_attributes = True
+    
+    @model_validator(mode='before')
+    @classmethod
+    def convert_top_moves(cls, data):
+        """Convert top_moves from dict/list to TopMoveInfo objects."""
+        if isinstance(data, dict) and "top_moves" in data and data["top_moves"]:
+            # Convert list of dicts to list of TopMoveInfo
+            if isinstance(data["top_moves"], list):
+                data["top_moves"] = [TopMoveInfo(**move) if isinstance(move, dict) else move for move in data["top_moves"]]
+        return data
 
 
 class MoveReviewResponse(BaseModel):
@@ -64,6 +86,9 @@ class MoveReviewResponse(BaseModel):
     centipawn_loss: Optional[int] = None
     explanation: Optional[str] = None
     accuracy: Optional[int] = None
+    move_san: Optional[str] = None  # SAN notation of the move
+    eval_after: Optional[str] = None  # Evaluation after the move
+    top_moves: Optional[List[TopMoveInfo]] = None  # Top 5 engine moves
 
     class Config:
         from_attributes = True
