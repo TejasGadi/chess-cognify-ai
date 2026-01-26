@@ -1,0 +1,58 @@
+# Core Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# LangChain & LangGraph v1.0
+langchain>=1.0.0
+langgraph>=1.0.0
+langchain-core>=0.3.0
+langchain-groq>=0.1.0
+
+# Chess Engine
+python-chess==1.999
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Caching
+redis==5.2.0
+hiredis==2.3.2
+
+# Vector Database (Books)
+langchain-qdrant>=0.1.0
+qdrant-client>=1.7.0
+
+# Embeddings - Ollama (Local)
+langchain-ollama>=0.1.0
+
+# PDF Processing (Books)
+pypdf2==3.0.1
+pdfplumber==0.11.4
+
+# HTTP Client
+httpx==0.27.2
+
+# Environment & Configuration
+python-dotenv==1.0.1
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+
+# Code Quality
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0
+
+# Utilities
+python-multipart==0.0.12
+
+# Streamlit UI (for testing)
+streamlit==1.39.0
+httpx==0.27.2
+chess-svg==0.1.0
