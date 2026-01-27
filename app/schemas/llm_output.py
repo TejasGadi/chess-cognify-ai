@@ -2,7 +2,7 @@
 Pydantic schemas for LLM structured output.
 """
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Dict, Optional, Literal
 
 
 class ExplanationOutput(BaseModel):
@@ -22,4 +22,45 @@ class WeaknessOutput(BaseModel):
         description="List of 3-5 high-level weakness categories (chess concepts, not specific moves)",
         min_length=3,
         max_length=5,
+    )
+
+
+class PiecePositions(BaseModel):
+    """Piece positions grouped by type."""
+    King: List[str] = Field(default_factory=list, description="King squares (usually 1)")
+    Queen: List[str] = Field(default_factory=list, description="Queen squares (usually 0-1)")
+    Rooks: List[str] = Field(default_factory=list, description="Rook squares")
+    Bishops: List[str] = Field(default_factory=list, description="Bishop squares")
+    Knights: List[str] = Field(default_factory=list, description="Knight squares")
+    Pawns: List[str] = Field(default_factory=list, description="Pawn squares")
+
+
+class PositionExtractionOutput(BaseModel):
+    """Structured output for position extraction step."""
+    
+    white_pieces: PiecePositions = Field(
+        ...,
+        description="White pieces by type with their square locations"
+    )
+    black_pieces: PiecePositions = Field(
+        ...,
+        description="Black pieces by type with their square locations"
+    )
+    active_color: Literal["White", "Black"] = Field(
+        ...,
+        description="Color to move in this position"
+    )
+    last_move_square: Optional[str] = Field(
+        None,
+        description="Square where the last piece moved to (e.g., 'e4', 'd5')"
+    )
+    verification_status: Literal["verified", "needs_review"] = Field(
+        "needs_review",
+        description="Status of position extraction verification"
+    )
+    confidence: float = Field(
+        ...,
+        description="Confidence in extraction accuracy (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0
     )
