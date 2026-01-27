@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     use_vision_for_explanations: bool = True  # Use vision model for move explanations
 
     # LLM Settings
-    llm_temperature: float = 0.7
+    llm_temperature: float = 0.2  # Lower temperature for more deterministic output and reduced hallucinations
     llm_max_tokens: int = 500
     
     # Parallel Processing

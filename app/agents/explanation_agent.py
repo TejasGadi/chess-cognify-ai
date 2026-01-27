@@ -1,6 +1,7 @@
 """
 Explanation Agent - Generates human-readable explanations for chess mistakes.
 Uses OpenAI with FEN-based analysis.
+Implements multi-step reasoning to prevent position hallucination.
 """
 from typing import Dict, Any, Optional, List
 from langchain_openai import ChatOpenAI
@@ -11,8 +12,16 @@ from app.models.base import SessionLocal
 from app.schemas.llm_output import ExplanationOutput
 from app.utils.logger import get_logger
 from app.utils.position_formatter import format_position_for_llm
+from app.agents.position_extraction_agent import PositionExtractionAgent
+from app.utils.position_validator import PositionValidator, ValidationResult
+from app.utils.explanation_validator import ExplanationValidator, ExplanationValidationResult
+from app.agents.explanation_validator_agent import ExplanationValidatorAgent
+from app.services.theme_analysis_service import ThemeAnalysisService
+from app.utils.tactical_patterns import TacticalPatternDetector
+from app.utils.chess_principles import get_relevant_principles
 import asyncio
 import chess
+import re
 
 logger = get_logger(__name__)
 
@@ -36,6 +45,13 @@ class ExplanationAgent:
             temperature=settings.llm_temperature,
             max_tokens=settings.llm_max_tokens,
         )
+        
+        # Initialize position extraction agent for multi-step reasoning
+        self.position_extraction_agent = PositionExtractionAgent()
+        self.position_validator = PositionValidator()
+        
+        # Initialize explanation validator agent (LLM-based)
+        self.explanation_validator_agent = ExplanationValidatorAgent()
 
         # Create structured output LLM
         self.structured_llm = self.llm.with_structured_output(ExplanationOutput)
@@ -63,15 +79,29 @@ class ExplanationAgent:
 - If {active_player} plays a move and evaluation becomes -2.50, this means {active_player} gave Black an advantage (good for {active_player})
 - Always interpret evaluations from the perspective of who just moved
 
+**USE THEME ANALYSIS:**
+The theme analysis provided below contains structured positional insights. Use it to provide specific, tactical explanations:
+
+1. **Material Analysis**: If material is imbalanced, explain the material difference specifically (e.g., "White is down a pawn" or "Black has a rook for a knight")
+2. **Mobility Analysis**: If mobility differs, explain how it affects the position (e.g., "White's pieces are more active" or "Black's pieces are restricted")
+3. **Space Control**: If space is imbalanced, explain the space advantage (e.g., "White controls more central squares" or "Black's position is cramped")
+4. **King Safety**: If king safety is poor, explain the specific vulnerabilities (e.g., "Black's king is exposed on the kingside" or "White's king lacks pawn protection")
+5. **Tactical Patterns**: If tactical patterns are detected, explain them specifically:
+   - If a pin is detected: "The knight is pinned to the king by the bishop"
+   - If a fork is possible: "The knight can fork the queen and rook"
+   - If a piece is hanging: "The queen is undefended and can be captured"
+   - If weak squares exist: "The f7 square is vulnerable to attack"
+
 **ANALYSIS REQUIREMENTS:**
-- Look at the position (FEN) and identify specific tactical elements:
-  * Trapped pieces (pieces that can be captured)
-  * Pins, forks, discovered attacks
-  * Weak squares (especially around the king)
-  * Piece coordination issues
-  * Tactical sequences that the opponent can play
-- Explain WHY the move creates these problems or opportunities
+- Use the theme analysis provided below to identify specific tactical and positional elements
+- Reference material imbalances, mobility differences, space control, and king safety issues
+- Identify tactical patterns (pins, forks, discovered attacks, hanging pieces, weak squares)
+- Explain WHY the move creates these problems or opportunities based on the theme analysis
 - Compare to the best move and explain what specific tactical/positional element was missed
+- Be SPECIFIC: Instead of "allows White to gain advantage", say "White gains material advantage" or "White's mobility increases"
+- If theme analysis shows a pin, explain the pin specifically
+- If king safety is poor, explain the specific vulnerabilities
+- If material is imbalanced, explain the material difference
 
 Comment format:
 - Start with "{active_player} played {played_move_san}"
@@ -107,11 +137,21 @@ Move quality: {label}
 
 **IMPORTANT: The active player is {active_player}. Write your comment from {active_player}'s perspective.**
 
+{theme_analysis}
+
+{explanation_validation_feedback}
+
 **CRITICAL: POSITION VERIFICATION**
 All three representations (ASCII board, FEN, piece list) show the SAME position - the position AFTER {played_move_san} was played.
-- Cross-reference all three to verify piece locations
-- If you see a piece in one representation, it must be in all three
-- If there's any discrepancy, trust the piece list as the authoritative source
+
+**VERIFIED PIECE POSITIONS:**
+{verified_pieces}
+
+**VALIDATION STATUS:**
+- These piece positions have been extracted and validated (confidence: {validation_confidence})
+- Use ONLY these verified positions in your explanation
+- NEVER mention pieces not in the verified list above
+- Cross-reference with ASCII board and FEN, but trust the verified positions as authoritative
 
 **ANALYSIS REQUIREMENTS:**
 1. Use the ASCII board to visually understand the position:
@@ -125,12 +165,12 @@ All three representations (ASCII board, FEN, piece list) show the SAME position 
    - Use it to verify piece locations
    - **VERIFY: Parse the FEN and confirm it matches the ASCII board**
 
-3. Use the piece list to identify exact locations (MOST RELIABLE - AUTHORITATIVE SOURCE):
-   - Reference specific squares from the piece list
-   - This is the authoritative source for piece locations
-   - **VERIFY: Cross-check with ASCII board to ensure consistency**
-   - **If you mention a piece, use the exact square from the piece list**
-   - **Example: If piece list shows "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else**
+3. Use the VERIFIED PIECE POSITIONS above (MOST RELIABLE - AUTHORITATIVE SOURCE):
+   - These positions have been extracted and validated in a separate step
+   - Reference specific squares ONLY from the verified positions list
+   - **CRITICAL: If verified positions show "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else**
+   - **NEVER mention a piece on a square unless it's in the verified positions list**
+   - Cross-reference with ASCII board and FEN for visual confirmation, but trust verified positions
 
 4. Analyze what {played_move_san} accomplished:
    - What does this move create or change in the position?
@@ -138,26 +178,27 @@ All three representations (ASCII board, FEN, piece list) show the SAME position 
    - What threats or opportunities does this position create?
 
 5. Be SPECIFIC and FACTUAL - CRITICAL VERIFICATION:
-   - **ALWAYS check the piece list first** - it shows exact piece locations
-   - **NEVER mention a piece on a square unless it's in the piece list**
+   - **ALWAYS check the VERIFIED PIECE POSITIONS first** - these have been extracted and validated
+   - **NEVER mention a piece on a square unless it's in the verified positions list**
    - **NEVER say a piece can move to a square unless you verify it's legal from the current position**
-   - Cross-reference with the ASCII board for visual confirmation
-   - If the piece list shows "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else
-   - Explain concrete tactical or positional reasons based on ACTUAL piece locations
+   - Cross-reference with the ASCII board and FEN for visual confirmation, but trust verified positions
+   - If verified positions show "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else
+   - Explain concrete tactical or positional reasons based on ACTUAL verified piece locations
    - Don't make generic statements - be specific about what the position shows
-   - **Example: If piece list shows "Knights: b3, f3", do NOT say "Nb5" - that knight doesn't exist on b5**
+   - **Example: If verified positions show "Knights: b3, f3", do NOT say "Nb5" - that knight doesn't exist on b5**
 
 Provide a SPECIFIC comment on {active_player}'s move ({played_move_san}) following the format:
 - Start with "{active_player} played {played_move_san}"
-- Describe the position using the ASCII board, FEN, and piece list (where pieces are after the move)
-- Explain WHY this specific move is {label_lower} based on the position
+- Describe the position using the verified piece positions (where pieces are after the move)
+- Use the ASCII board and FEN for visual/spatial understanding, but reference verified positions for exact locations
+- Explain WHY this specific move is {label_lower} based on the verified position
 - If it's a mistake/blunder, explain what specific tactical or positional problem it creates
 - Compare to the best move ({best_move_san}) and explain what {active_player} missed
-- Be FACTUAL: only mention pieces, squares, and positions that exist in the provided representations
+- Be FACTUAL: only mention pieces, squares, and positions that exist in the verified positions list
 
 Example for a blunder: "Black played Qxb2. This is a blunder because the queen on b2 becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
 
-**Remember: Use all three representations (ASCII board, FEN, piece list) to ensure accurate analysis.**""",
+**Remember: Use the verified piece positions as the authoritative source. Cross-reference with ASCII board and FEN for context, but trust verified positions for exact locations.**""",
                 ),
             ]
         )
@@ -213,6 +254,289 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
         except Exception as e:
             logger.warning(f"Error determining active player from FEN: {e}")
             return "Unknown"
+
+    async def _extract_and_validate_position(
+        self,
+        fen_after: str,
+        last_move_san: str,
+        highlight_squares: List[str],
+        max_retries: int = 2
+    ) -> tuple[Dict[str, Any], ValidationResult]:
+        """
+        Extract and validate position using multi-step reasoning.
+        
+        Args:
+            fen_after: FEN string of position after move
+            last_move_san: Last move in SAN notation
+            highlight_squares: Squares to highlight
+            max_retries: Maximum retry attempts if validation fails
+            
+        Returns:
+            Tuple of (verified_pieces_dict, validation_result)
+        """
+        logger.info(f"[AGENT] ExplanationAgent - Starting position extraction and validation")
+        
+        error_feedback = None
+        corrected_pieces = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Step 1: Extract position using LLM (with error feedback if retry)
+                logger.debug(f"[AGENT] ExplanationAgent - Position extraction attempt {attempt + 1}/{max_retries + 1}")
+                if error_feedback:
+                    logger.info(f"[AGENT] ExplanationAgent - Retry with error feedback")
+                
+                extraction = await self.position_extraction_agent.extract_position(
+                    fen=fen_after,
+                    last_move=last_move_san,
+                    highlight_squares=highlight_squares,
+                    error_feedback=error_feedback,
+                    corrected_pieces=corrected_pieces
+                )
+                
+                # Step 2: Validate extraction
+                logger.debug(f"[AGENT] ExplanationAgent - Validating extracted position")
+                validation_result = self.position_validator.validate_extraction(
+                    extraction=extraction,
+                    fen=fen_after
+                )
+                
+                # Step 3: Check if validation passed
+                if validation_result.is_valid or validation_result.confidence_score >= 0.9:
+                    logger.info(
+                        f"[AGENT] ExplanationAgent - Position validation PASSED "
+                        f"(confidence: {validation_result.confidence_score:.2f})"
+                    )
+                    # Format verified pieces for prompt
+                    # Convert PiecePositions models to dict for compatibility
+                    verified_pieces = {
+                        "white": extraction.white_pieces.model_dump(),
+                        "black": extraction.black_pieces.model_dump(),
+                        "active_color": extraction.active_color,
+                        "confidence": validation_result.confidence_score
+                    }
+                    return verified_pieces, validation_result
+                
+                # Validation failed - prepare for retry if attempts remain
+                if attempt < max_retries:
+                    logger.warning(
+                        f"[AGENT] ExplanationAgent - Position validation FAILED "
+                        f"(confidence: {validation_result.confidence_score:.2f}, "
+                        f"discrepancies: {len(validation_result.discrepancies)}). Preparing retry..."
+                    )
+                    
+                    # Format error feedback for next retry attempt
+                    error_feedback = self._format_error_feedback(validation_result.discrepancies)
+                    corrected_pieces = validation_result.corrected_pieces
+                    
+                    logger.debug(f"[AGENT] ExplanationAgent - Will retry with {len(validation_result.discrepancies)} error corrections")
+                    continue  # Retry in next iteration
+                else:
+                    # Max retries reached - use validator's corrected pieces
+                    logger.warning(
+                        f"[AGENT] ExplanationAgent - Max retries reached. "
+                        f"Using validator's corrected piece positions."
+                    )
+                    verified_pieces = {
+                        "white": validation_result.corrected_pieces.get("white", {}),
+                        "black": validation_result.corrected_pieces.get("black", {}),
+                        "active_color": "White" if chess.Board(fen_after).turn == chess.WHITE else "Black",
+                        "confidence": validation_result.confidence_score
+                    }
+                    return verified_pieces, validation_result
+                    
+            except Exception as e:
+                logger.error(f"[AGENT] ExplanationAgent - Error in extraction/validation attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    # Final attempt failed - use validator's corrected pieces as fallback
+                    logger.error("[AGENT] ExplanationAgent - All extraction attempts failed. Using fallback.")
+                    try:
+                        board = chess.Board(fen_after)
+                        corrected_pieces = self.position_validator._get_actual_pieces_from_fen(fen_after)
+                        verified_pieces = {
+                            "white": corrected_pieces.get("white", {}),
+                            "black": corrected_pieces.get("black", {}),
+                            "active_color": "White" if board.turn == chess.WHITE else "Black",
+                            "confidence": 0.5  # Low confidence for fallback
+                        }
+                        validation_result = ValidationResult(
+                            is_valid=False,
+                            discrepancies=["Extraction failed, using FEN fallback"],
+                            confidence_score=0.5,
+                            needs_revision=True,
+                            corrected_pieces=corrected_pieces
+                        )
+                        return verified_pieces, validation_result
+                    except Exception as fallback_error:
+                        logger.error(f"[AGENT] ExplanationAgent - Fallback also failed: {fallback_error}")
+                        raise
+        
+        # Should not reach here, but just in case
+        raise ValueError("Position extraction and validation failed after all attempts")
+
+    def _format_explanation_validation_feedback(self, validation_result: ExplanationValidationResult) -> str:
+        """
+        Format explanation validation feedback for retry prompt.
+        
+        Args:
+            validation_result: Result from explanation validation
+            
+        Returns:
+            Formatted feedback string for prompt
+        """
+        if not validation_result.discrepancies:
+            return ""
+        
+        lines = []
+        lines.append("**PREVIOUS EXPLANATION VALIDATION ERRORS (CRITICAL - MUST CORRECT):**")
+        lines.append("")
+        lines.append("Your previous explanation contained the following errors:")
+        lines.append("")
+        
+        for i, disc in enumerate(validation_result.discrepancies[:10], 1):  # Limit to first 10
+            lines.append(f"{i}. {disc}")
+        
+        if len(validation_result.discrepancies) > 10:
+            lines.append(f"... and {len(validation_result.discrepancies) - 10} more errors")
+        
+        lines.append("")
+        lines.append("**INSTRUCTIONS FOR CORRECTION:**")
+        lines.append("- Review each error above carefully")
+        lines.append("- Check the VERIFIED PIECE POSITIONS below to see where pieces actually are")
+        lines.append("- DO NOT mention pieces on squares unless they are in the verified positions list")
+        lines.append("- If you mentioned a piece on a wrong square, correct it to the actual square from verified positions")
+        lines.append("- If you mentioned a piece that doesn't exist, remove that reference")
+        lines.append("- DO NOT mention impossible moves (e.g., 'knight from b3 to c4' when that move is illegal)")
+        lines.append("- Only mention moves that are legally possible from the current position")
+        lines.append("- Only reference pieces and squares that exist in the verified positions")
+        lines.append("- Be FACTUAL: verify every piece-square mention and move against the verified positions and FEN")
+        lines.append("")
+        lines.append("**CRITICAL:** Your explanation will be validated again. Ensure all piece-square mentions and moves are correct and legal.")
+        
+        return "\n".join(lines)
+
+    def _format_error_feedback(self, discrepancies: List[str]) -> str:
+        """
+        Format validation discrepancies as error feedback for retry.
+        
+        Args:
+            discrepancies: List of discrepancy messages from validator
+            
+        Returns:
+            Formatted error feedback string
+        """
+        if not discrepancies:
+            return ""
+        
+        lines = []
+        lines.append("**ERRORS FOUND IN PREVIOUS EXTRACTION:**")
+        lines.append("")
+        for i, disc in enumerate(discrepancies[:10], 1):  # Limit to first 10
+            lines.append(f"{i}. {disc}")
+        if len(discrepancies) > 10:
+            lines.append(f"... and {len(discrepancies) - 10} more errors")
+        lines.append("")
+        lines.append("**INSTRUCTIONS FOR RETRY:**")
+        lines.append("- Carefully review each error above")
+        lines.append("- Correct the piece positions to match the actual position")
+        lines.append("- Use the corrected reference provided below")
+        lines.append("- Double-check each piece location against the piece list")
+        
+        return "\n".join(lines)
+
+    def _format_theme_analysis(
+        self, 
+        theme_analysis: Dict[str, Any], 
+        tactical_patterns: List[str],
+        relevant_principles: List[str] = None
+    ) -> str:
+        """
+        Format theme analysis for inclusion in prompt.
+        
+        Args:
+            theme_analysis: Dictionary with theme analysis results
+            tactical_patterns: List of tactical pattern descriptions
+            
+        Returns:
+            Formatted string for prompt
+        """
+        lines = []
+        lines.append("**POSITIONAL THEMES:**")
+        lines.append("")
+        
+        # Material
+        material = theme_analysis.get("material", {})
+        lines.append(f"- Material: {material.get('material_difference', 'N/A')}")
+        
+        # Mobility
+        mobility = theme_analysis.get("mobility", {})
+        lines.append(f"- Mobility: {mobility.get('mobility_description', 'N/A')}")
+        
+        # Space
+        space = theme_analysis.get("space", {})
+        lines.append(f"- Space: {space.get('space_description', 'N/A')}")
+        
+        # King Safety
+        king_safety = theme_analysis.get("king_safety", {})
+        lines.append(f"- King Safety: {king_safety.get('king_safety_description', 'N/A')}")
+        
+        # Tactical Patterns
+        if tactical_patterns:
+            lines.append("")
+            lines.append("**TACTICAL PATTERNS:**")
+            for pattern in tactical_patterns[:5]:  # Limit to 5 most relevant
+                lines.append(f"  * {pattern}")
+        else:
+            lines.append("")
+            lines.append("**TACTICAL PATTERNS:** None detected")
+        
+        # Add relevant chess principles
+        if relevant_principles:
+            lines.append("")
+            lines.append("**RELEVANT CHESS PRINCIPLES:**")
+            for i, principle in enumerate(relevant_principles, 1):
+                lines.append(f"{i}. {principle}")
+        
+        lines.append("")
+        lines.append("**INSTRUCTIONS:** Use the theme analysis above to provide specific, tactical explanations. Reference material imbalances, mobility differences, space control, king safety issues, and tactical patterns in your explanation. Apply the relevant chess principles to explain why the move is good or bad.")
+        
+        return "\n".join(lines)
+
+    def _format_verified_pieces(self, verified_pieces: Dict[str, Any]) -> str:
+        """
+        Format verified pieces for inclusion in prompt.
+        
+        Args:
+            verified_pieces: Dictionary with verified piece positions
+            
+        Returns:
+            Formatted string for prompt
+        """
+        lines = []
+        lines.append("**VERIFIED PIECE POSITIONS (from position extraction step):**")
+        lines.append("")
+        lines.append("White pieces:")
+        white_pieces = verified_pieces.get("white", {})
+        for piece_type in ['King', 'Queen', 'Rooks', 'Bishops', 'Knights', 'Pawns']:
+            squares = white_pieces.get(piece_type, [])
+            if squares:
+                lines.append(f"  {piece_type}: {', '.join(squares)}")
+        
+        lines.append("")
+        lines.append("Black pieces:")
+        black_pieces = verified_pieces.get("black", {})
+        for piece_type in ['King', 'Queen', 'Rooks', 'Bishops', 'Knights', 'Pawns']:
+            squares = black_pieces.get(piece_type, [])
+            if squares:
+                lines.append(f"  {piece_type}: {', '.join(squares)}")
+        
+        lines.append("")
+        lines.append(f"Active color: {verified_pieces.get('active_color', 'Unknown')}")
+        lines.append(f"Validation confidence: {verified_pieces.get('confidence', 0.0):.2f}")
+        lines.append("")
+        lines.append("**CRITICAL: Use ONLY these verified piece positions. Do not mention pieces not listed here.**")
+        
+        return "\n".join(lines)
 
     def _interpret_evaluation(self, eval_str: str, active_player: str) -> str:
         """
@@ -372,12 +696,45 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
                 # Don't use FEN as-is - this would be wrong. Raise error instead.
                 raise ValueError(f"Failed to apply move {played_move_san} to FEN position: {e}") from e
             
+            # MULTI-STEP REASONING: Extract and validate position first
+            logger.info(f"[AGENT] ExplanationAgent - Step 1: Extracting and validating position")
+            verified_pieces, validation_result = await self._extract_and_validate_position(
+                fen_after=fen_after,
+                last_move_san=played_move_san,
+                highlight_squares=highlight_squares,
+                max_retries=2
+            )
+            
+            logger.info(
+                f"[AGENT] ExplanationAgent - Position validation complete: "
+                f"valid={validation_result.is_valid}, confidence={validation_result.confidence_score:.2f}"
+            )
+            if validation_result.discrepancies:
+                logger.warning(f"[AGENT] ExplanationAgent - Found {len(validation_result.discrepancies)} discrepancies (using corrected positions)")
+            
+            # THEME ANALYSIS: Analyze positional themes (with caching)
+            logger.info(f"[AGENT] ExplanationAgent - Step 2: Analyzing positional themes")
+            board_after = chess.Board(fen_after)
+            theme_analysis = ThemeAnalysisService.analyze_position_themes(board_after, use_cache=True)
+            tactical_patterns = TacticalPatternDetector.identify_tactical_patterns(board_after)
+            
+            logger.debug(f"[AGENT] ExplanationAgent - Theme analysis complete: material={theme_analysis['material']['advantage']}, mobility={theme_analysis['mobility']['mobility_advantage']}, tactical_patterns={len(tactical_patterns)}")
+            
+            # Get relevant chess principles based on themes
+            relevant_principles = get_relevant_principles(theme_analysis, tactical_patterns)
+            
+            # Format theme analysis for prompt
+            theme_analysis_text = self._format_theme_analysis(theme_analysis, tactical_patterns, relevant_principles)
+            
             # Generate combined position representation (all three from the same FEN)
             position_representation = format_position_for_llm(
                 fen_after,
                 last_move=played_move_san,
                 highlight_squares=highlight_squares
             )
+            
+            # Format verified pieces for prompt
+            verified_pieces_text = self._format_verified_pieces(verified_pieces)
             
             # Log position representation for debugging
             logger.debug(f"[AGENT] ExplanationAgent - Generated position representation (length: {len(position_representation)} chars)")
@@ -387,53 +744,135 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
             ascii_sample = position_representation.split("ASCII BOARD")[1].split("FEN NOTATION")[0][:200] if "ASCII BOARD" in position_representation else "N/A"
             logger.debug(f"[AGENT] ExplanationAgent - ASCII board sample: {ascii_sample}...")
             
-            # Invoke chain with structured output
-            logger.debug(f"[AGENT] ExplanationAgent - Invoking LLM chain for move analysis")
-            logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
-            logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
+            # EXPLANATION GENERATION WITH VALIDATION AND RETRY
+            max_explanation_retries = 2
+            explanation_validation_feedback = ""
             
-            # Get Langfuse callback handler for tracing
-            from app.utils.langfuse_handler import get_langfuse_handler
-            langfuse_handler = get_langfuse_handler()
-            
-            # Use text-only model with combined position representation
-            # Pass Langfuse handler via config if available
-            config = {}
-            if langfuse_handler:
-                config["callbacks"] = [langfuse_handler]
-            
-            result = await self.chain.ainvoke(
-                {
-                    "position_representation": position_representation,
-                    "fen": fen_after,  # Also include FEN for reference
-                    "active_player": active_player,
-                    "played_move_san": played_move_san,
-                    "best_move_san": best_move_san,
-                    "label": label,
-                    "label_lower": label_lower,
-                    "eval_change": eval_change,
-                    "top_moves_context": top_moves_context,
-                    "played_move_eval": played_eval_str,
-                    "best_move_eval": best_eval_str,
-                    "evaluation_interpretation": evaluation_interpretation,
-                },
-                config=config
-            )
-            
-            logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
+            for explanation_attempt in range(max_explanation_retries + 1):
+                try:
+                    # Invoke chain with structured output
+                    logger.debug(f"[AGENT] ExplanationAgent - Step 3: Invoking LLM chain for move analysis (attempt {explanation_attempt + 1}/{max_explanation_retries + 1})")
+                    if explanation_validation_feedback:
+                        logger.info(f"[AGENT] ExplanationAgent - Retry explanation generation with validation feedback")
+                    logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
+                    logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
+                    
+                    # Get Langfuse callback handler for tracing
+                    from app.utils.langfuse_handler import get_langfuse_handler
+                    langfuse_handler = get_langfuse_handler()
+                    
+                    # Use text-only model with combined position representation
+                    # Pass Langfuse handler via config if available
+                    config = {}
+                    if langfuse_handler:
+                        config["callbacks"] = [langfuse_handler]
+                    
+                    result = await self.chain.ainvoke(
+                        {
+                            "position_representation": position_representation,
+                            "fen": fen_after,  # Also include FEN for reference
+                            "verified_pieces": verified_pieces_text,  # Verified piece positions from extraction step
+                            "validation_confidence": f"{validation_result.confidence_score:.2f}",
+                            "theme_analysis": theme_analysis_text,  # Theme analysis for structured insights
+                            "explanation_validation_feedback": explanation_validation_feedback,  # Validation feedback for retry
+                            "active_player": active_player,
+                            "played_move_san": played_move_san,
+                            "best_move_san": best_move_san,
+                            "label": label,
+                            "label_lower": label_lower,
+                            "eval_change": eval_change,
+                            "top_moves_context": top_moves_context,
+                            "played_move_eval": played_eval_str,
+                            "best_move_eval": best_eval_str,
+                            "evaluation_interpretation": evaluation_interpretation,
+                        },
+                        config=config
+                    )
+                    
+                    logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
 
-            # Extract explanation from structured output
-            explanation = result.explanation.strip()
-            logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
-            if len(explanation) > 500:  # Safety check
-                explanation = explanation[:500] + "..."
+                    # Extract explanation from structured output
+                    explanation = result.explanation.strip()
+                    logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
+                    if len(explanation) > 500:  # Safety check
+                        explanation = explanation[:500] + "..."
 
-            # Log agent output
-            logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
-            logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
-            logger.debug(f"[AGENT] ExplanationAgent - Move: {played_move_san}, Best: {best_move_san}, Eval: {played_eval_str}")
-
-            return explanation
+                    # POST-PROCESSING VALIDATION: Validate explanation against verified positions using LLM
+                    logger.info(f"[AGENT] ExplanationAgent - Step 4: Validating explanation against verified positions (LLM-based)")
+                    validation_output = await self.explanation_validator_agent.validate_explanation(
+                        explanation=explanation,
+                        verified_pieces=verified_pieces,
+                        fen=fen_after,
+                        played_move_san=played_move_san,
+                        best_move_san=best_move_san,
+                        active_player=active_player
+                    )
+                    
+                    # Convert ExplanationValidationOutput to ExplanationValidationResult for compatibility
+                    from app.utils.explanation_validator import ExplanationValidationResult
+                    explanation_validation = ExplanationValidationResult(
+                        is_valid=validation_output.is_valid,
+                        discrepancies=validation_output.discrepancies,
+                        confidence_score=validation_output.confidence_score,
+                        needs_revision=validation_output.needs_revision,
+                        sanitized_explanation=explanation  # Keep original
+                    )
+                    
+                    logger.info(
+                        f"[AGENT] ExplanationAgent - Explanation validation complete: "
+                        f"valid={explanation_validation.is_valid}, "
+                        f"discrepancies={len(explanation_validation.discrepancies)}, "
+                        f"confidence={explanation_validation.confidence_score:.2f}"
+                    )
+                    
+                    # Check if validation passed
+                    if explanation_validation.is_valid or explanation_validation.confidence_score >= 0.9:
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation validation PASSED (confidence: {explanation_validation.confidence_score:.2f})")
+                        # Log agent output
+                        logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
+                        logger.debug(f"[AGENT] ExplanationAgent - Move: {played_move_san}, Best: {best_move_san}, Eval: {played_eval_str}")
+                        return explanation
+                    
+                    # Validation failed - prepare for retry if attempts remain
+                    if explanation_attempt < max_explanation_retries:
+                        logger.warning(
+                            f"[AGENT] ExplanationAgent - Explanation validation FAILED "
+                            f"(confidence: {explanation_validation.confidence_score:.2f}, "
+                            f"discrepancies: {len(explanation_validation.discrepancies)}). Preparing retry..."
+                        )
+                        
+                        # Format validation feedback for retry
+                        explanation_validation_feedback = self._format_explanation_validation_feedback(explanation_validation)
+                        
+                        logger.debug(f"[AGENT] ExplanationAgent - Will retry with {len(explanation_validation.discrepancies)} validation corrections")
+                        continue  # Retry in next iteration
+                    else:
+                        # Max retries reached - use sanitized explanation or fallback
+                        logger.warning(
+                            f"[AGENT] ExplanationAgent - Max explanation retries reached. "
+                            f"Using explanation with {len(explanation_validation.discrepancies)} validation issues."
+                        )
+                        # Use sanitized explanation (with invalid references removed)
+                        final_explanation = explanation_validation.sanitized_explanation
+                        # Remove [INVALID: ...] markers if present
+                        final_explanation = re.sub(r'\[INVALID:[^\]]+\]', '', final_explanation).strip()
+                        
+                        logger.warning(f"[AGENT] ExplanationAgent - Using sanitized explanation after max retries")
+                        logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation: {final_explanation}")
+                        return final_explanation
+                        
+                except Exception as e:
+                    logger.error(f"[AGENT] ExplanationAgent - Error in explanation generation attempt {explanation_attempt + 1}: {e}", exc_info=True)
+                    if explanation_attempt == max_explanation_retries:
+                        # Final attempt failed - use fallback
+                        raise
+                    # Continue to retry
+                    continue
+            
+            # Should not reach here, but just in case
+            raise ValueError("Explanation generation failed after all retry attempts")
         except Exception as e:
             logger.error(f"Error generating explanation: {e}")
             # Fallback explanation - check if played move is the best move
