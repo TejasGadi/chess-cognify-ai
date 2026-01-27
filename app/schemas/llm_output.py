@@ -64,3 +64,26 @@ class PositionExtractionOutput(BaseModel):
         ge=0.0,
         le=1.0
     )
+
+
+class ExplanationValidationOutput(BaseModel):
+    """Structured output for explanation validation."""
+    
+    is_valid: bool = Field(
+        ...,
+        description="Whether the explanation is valid (no hallucinations or impossible moves)"
+    )
+    discrepancies: List[str] = Field(
+        default_factory=list,
+        description="List of specific errors found (e.g., 'Mentions knight on b5 but knight is on b3', 'Mentions impossible move knight from b3 to c4')"
+    )
+    confidence_score: float = Field(
+        ...,
+        description="Confidence in validation (0.0 to 1.0). Higher = more confident explanation is correct.",
+        ge=0.0,
+        le=1.0
+    )
+    needs_revision: bool = Field(
+        ...,
+        description="Whether the explanation needs to be revised due to errors"
+    )

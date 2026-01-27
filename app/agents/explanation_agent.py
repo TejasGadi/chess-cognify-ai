@@ -14,11 +14,14 @@ from app.utils.logger import get_logger
 from app.utils.position_formatter import format_position_for_llm
 from app.agents.position_extraction_agent import PositionExtractionAgent
 from app.utils.position_validator import PositionValidator, ValidationResult
+from app.utils.explanation_validator import ExplanationValidator, ExplanationValidationResult
+from app.agents.explanation_validator_agent import ExplanationValidatorAgent
 from app.services.theme_analysis_service import ThemeAnalysisService
 from app.utils.tactical_patterns import TacticalPatternDetector
 from app.utils.chess_principles import get_relevant_principles
 import asyncio
 import chess
+import re
 
 logger = get_logger(__name__)
 
@@ -46,6 +49,9 @@ class ExplanationAgent:
         # Initialize position extraction agent for multi-step reasoning
         self.position_extraction_agent = PositionExtractionAgent()
         self.position_validator = PositionValidator()
+        
+        # Initialize explanation validator agent (LLM-based)
+        self.explanation_validator_agent = ExplanationValidatorAgent()
 
         # Create structured output LLM
         self.structured_llm = self.llm.with_structured_output(ExplanationOutput)
@@ -132,6 +138,8 @@ Move quality: {label}
 **IMPORTANT: The active player is {active_player}. Write your comment from {active_player}'s perspective.**
 
 {theme_analysis}
+
+{explanation_validation_feedback}
 
 **CRITICAL: POSITION VERIFICATION**
 All three representations (ASCII board, FEN, piece list) show the SAME position - the position AFTER {played_move_san} was played.
@@ -365,6 +373,47 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
         
         # Should not reach here, but just in case
         raise ValueError("Position extraction and validation failed after all attempts")
+
+    def _format_explanation_validation_feedback(self, validation_result: ExplanationValidationResult) -> str:
+        """
+        Format explanation validation feedback for retry prompt.
+        
+        Args:
+            validation_result: Result from explanation validation
+            
+        Returns:
+            Formatted feedback string for prompt
+        """
+        if not validation_result.discrepancies:
+            return ""
+        
+        lines = []
+        lines.append("**PREVIOUS EXPLANATION VALIDATION ERRORS (CRITICAL - MUST CORRECT):**")
+        lines.append("")
+        lines.append("Your previous explanation contained the following errors:")
+        lines.append("")
+        
+        for i, disc in enumerate(validation_result.discrepancies[:10], 1):  # Limit to first 10
+            lines.append(f"{i}. {disc}")
+        
+        if len(validation_result.discrepancies) > 10:
+            lines.append(f"... and {len(validation_result.discrepancies) - 10} more errors")
+        
+        lines.append("")
+        lines.append("**INSTRUCTIONS FOR CORRECTION:**")
+        lines.append("- Review each error above carefully")
+        lines.append("- Check the VERIFIED PIECE POSITIONS below to see where pieces actually are")
+        lines.append("- DO NOT mention pieces on squares unless they are in the verified positions list")
+        lines.append("- If you mentioned a piece on a wrong square, correct it to the actual square from verified positions")
+        lines.append("- If you mentioned a piece that doesn't exist, remove that reference")
+        lines.append("- DO NOT mention impossible moves (e.g., 'knight from b3 to c4' when that move is illegal)")
+        lines.append("- Only mention moves that are legally possible from the current position")
+        lines.append("- Only reference pieces and squares that exist in the verified positions")
+        lines.append("- Be FACTUAL: verify every piece-square mention and move against the verified positions and FEN")
+        lines.append("")
+        lines.append("**CRITICAL:** Your explanation will be validated again. Ensure all piece-square mentions and moves are correct and legal.")
+        
+        return "\n".join(lines)
 
     def _format_error_feedback(self, discrepancies: List[str]) -> str:
         """
@@ -695,56 +744,135 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
             ascii_sample = position_representation.split("ASCII BOARD")[1].split("FEN NOTATION")[0][:200] if "ASCII BOARD" in position_representation else "N/A"
             logger.debug(f"[AGENT] ExplanationAgent - ASCII board sample: {ascii_sample}...")
             
-            # Invoke chain with structured output
-            logger.debug(f"[AGENT] ExplanationAgent - Step 3: Invoking LLM chain for move analysis")
-            logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
-            logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
+            # EXPLANATION GENERATION WITH VALIDATION AND RETRY
+            max_explanation_retries = 2
+            explanation_validation_feedback = ""
             
-            # Get Langfuse callback handler for tracing
-            from app.utils.langfuse_handler import get_langfuse_handler
-            langfuse_handler = get_langfuse_handler()
-            
-            # Use text-only model with combined position representation
-            # Pass Langfuse handler via config if available
-            config = {}
-            if langfuse_handler:
-                config["callbacks"] = [langfuse_handler]
-            
-            result = await self.chain.ainvoke(
-                {
-                    "position_representation": position_representation,
-                    "fen": fen_after,  # Also include FEN for reference
-                    "verified_pieces": verified_pieces_text,  # Verified piece positions from extraction step
-                    "validation_confidence": f"{validation_result.confidence_score:.2f}",
-                    "theme_analysis": theme_analysis_text,  # Theme analysis for structured insights
-                    "active_player": active_player,
-                    "played_move_san": played_move_san,
-                    "best_move_san": best_move_san,
-                    "label": label,
-                    "label_lower": label_lower,
-                    "eval_change": eval_change,
-                    "top_moves_context": top_moves_context,
-                    "played_move_eval": played_eval_str,
-                    "best_move_eval": best_eval_str,
-                    "evaluation_interpretation": evaluation_interpretation,
-                },
-                config=config
-            )
-            
-            logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
+            for explanation_attempt in range(max_explanation_retries + 1):
+                try:
+                    # Invoke chain with structured output
+                    logger.debug(f"[AGENT] ExplanationAgent - Step 3: Invoking LLM chain for move analysis (attempt {explanation_attempt + 1}/{max_explanation_retries + 1})")
+                    if explanation_validation_feedback:
+                        logger.info(f"[AGENT] ExplanationAgent - Retry explanation generation with validation feedback")
+                    logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
+                    logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
+                    
+                    # Get Langfuse callback handler for tracing
+                    from app.utils.langfuse_handler import get_langfuse_handler
+                    langfuse_handler = get_langfuse_handler()
+                    
+                    # Use text-only model with combined position representation
+                    # Pass Langfuse handler via config if available
+                    config = {}
+                    if langfuse_handler:
+                        config["callbacks"] = [langfuse_handler]
+                    
+                    result = await self.chain.ainvoke(
+                        {
+                            "position_representation": position_representation,
+                            "fen": fen_after,  # Also include FEN for reference
+                            "verified_pieces": verified_pieces_text,  # Verified piece positions from extraction step
+                            "validation_confidence": f"{validation_result.confidence_score:.2f}",
+                            "theme_analysis": theme_analysis_text,  # Theme analysis for structured insights
+                            "explanation_validation_feedback": explanation_validation_feedback,  # Validation feedback for retry
+                            "active_player": active_player,
+                            "played_move_san": played_move_san,
+                            "best_move_san": best_move_san,
+                            "label": label,
+                            "label_lower": label_lower,
+                            "eval_change": eval_change,
+                            "top_moves_context": top_moves_context,
+                            "played_move_eval": played_eval_str,
+                            "best_move_eval": best_eval_str,
+                            "evaluation_interpretation": evaluation_interpretation,
+                        },
+                        config=config
+                    )
+                    
+                    logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
 
-            # Extract explanation from structured output
-            explanation = result.explanation.strip()
-            logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
-            if len(explanation) > 500:  # Safety check
-                explanation = explanation[:500] + "..."
+                    # Extract explanation from structured output
+                    explanation = result.explanation.strip()
+                    logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
+                    if len(explanation) > 500:  # Safety check
+                        explanation = explanation[:500] + "..."
 
-            # Log agent output
-            logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
-            logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
-            logger.debug(f"[AGENT] ExplanationAgent - Move: {played_move_san}, Best: {best_move_san}, Eval: {played_eval_str}")
-
-            return explanation
+                    # POST-PROCESSING VALIDATION: Validate explanation against verified positions using LLM
+                    logger.info(f"[AGENT] ExplanationAgent - Step 4: Validating explanation against verified positions (LLM-based)")
+                    validation_output = await self.explanation_validator_agent.validate_explanation(
+                        explanation=explanation,
+                        verified_pieces=verified_pieces,
+                        fen=fen_after,
+                        played_move_san=played_move_san,
+                        best_move_san=best_move_san,
+                        active_player=active_player
+                    )
+                    
+                    # Convert ExplanationValidationOutput to ExplanationValidationResult for compatibility
+                    from app.utils.explanation_validator import ExplanationValidationResult
+                    explanation_validation = ExplanationValidationResult(
+                        is_valid=validation_output.is_valid,
+                        discrepancies=validation_output.discrepancies,
+                        confidence_score=validation_output.confidence_score,
+                        needs_revision=validation_output.needs_revision,
+                        sanitized_explanation=explanation  # Keep original
+                    )
+                    
+                    logger.info(
+                        f"[AGENT] ExplanationAgent - Explanation validation complete: "
+                        f"valid={explanation_validation.is_valid}, "
+                        f"discrepancies={len(explanation_validation.discrepancies)}, "
+                        f"confidence={explanation_validation.confidence_score:.2f}"
+                    )
+                    
+                    # Check if validation passed
+                    if explanation_validation.is_valid or explanation_validation.confidence_score >= 0.9:
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation validation PASSED (confidence: {explanation_validation.confidence_score:.2f})")
+                        # Log agent output
+                        logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
+                        logger.debug(f"[AGENT] ExplanationAgent - Move: {played_move_san}, Best: {best_move_san}, Eval: {played_eval_str}")
+                        return explanation
+                    
+                    # Validation failed - prepare for retry if attempts remain
+                    if explanation_attempt < max_explanation_retries:
+                        logger.warning(
+                            f"[AGENT] ExplanationAgent - Explanation validation FAILED "
+                            f"(confidence: {explanation_validation.confidence_score:.2f}, "
+                            f"discrepancies: {len(explanation_validation.discrepancies)}). Preparing retry..."
+                        )
+                        
+                        # Format validation feedback for retry
+                        explanation_validation_feedback = self._format_explanation_validation_feedback(explanation_validation)
+                        
+                        logger.debug(f"[AGENT] ExplanationAgent - Will retry with {len(explanation_validation.discrepancies)} validation corrections")
+                        continue  # Retry in next iteration
+                    else:
+                        # Max retries reached - use sanitized explanation or fallback
+                        logger.warning(
+                            f"[AGENT] ExplanationAgent - Max explanation retries reached. "
+                            f"Using explanation with {len(explanation_validation.discrepancies)} validation issues."
+                        )
+                        # Use sanitized explanation (with invalid references removed)
+                        final_explanation = explanation_validation.sanitized_explanation
+                        # Remove [INVALID: ...] markers if present
+                        final_explanation = re.sub(r'\[INVALID:[^\]]+\]', '', final_explanation).strip()
+                        
+                        logger.warning(f"[AGENT] ExplanationAgent - Using sanitized explanation after max retries")
+                        logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
+                        logger.info(f"[AGENT] ExplanationAgent - Explanation: {final_explanation}")
+                        return final_explanation
+                        
+                except Exception as e:
+                    logger.error(f"[AGENT] ExplanationAgent - Error in explanation generation attempt {explanation_attempt + 1}: {e}", exc_info=True)
+                    if explanation_attempt == max_explanation_retries:
+                        # Final attempt failed - use fallback
+                        raise
+                    # Continue to retry
+                    continue
+            
+            # Should not reach here, but just in case
+            raise ValueError("Explanation generation failed after all retry attempts")
         except Exception as e:
             logger.error(f"Error generating explanation: {e}")
             # Fallback explanation - check if played move is the best move
