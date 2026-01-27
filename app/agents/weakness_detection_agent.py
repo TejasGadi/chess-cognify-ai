@@ -1,8 +1,7 @@
 """
-Weakness Detection Agent - Identifies recurring mistake patterns using Groq LLM.
+Weakness Detection Agent - Identifies recurring mistake patterns using LLM.
 """
 from typing import Dict, Any, List, Optional
-from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from collections import defaultdict
 from app.config import settings
@@ -10,6 +9,7 @@ from app.models.game import MoveReview, GameSummary
 from app.models.base import SessionLocal
 from app.schemas.llm_output import WeaknessOutput
 from app.utils.logger import get_logger
+from app.utils.llm_factory import get_llm
 
 logger = get_logger(__name__)
 
@@ -21,16 +21,8 @@ class WeaknessDetectionAgent:
     MISTAKE_LABELS = ["Inaccuracy", "Mistake", "Blunder"]
 
     def __init__(self):
-        """Initialize weakness detection agent with Groq LLM."""
-        if not settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY not configured")
-
-        self.llm = ChatGroq(
-            model=settings.groq_model,
-            groq_api_key=settings.groq_api_key,
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
-        )
+        """Initialize weakness detection agent with OpenAI LLM."""
+        self.llm = get_llm(use_vision=False, require_primary=True, allow_alternate=True)
 
         # Create structured output LLM
         self.structured_llm = self.llm.with_structured_output(WeaknessOutput)
@@ -183,19 +175,33 @@ Return 3-5 weakness categories as a structured list.""",
 
         try:
             # Invoke LLM with structured output
+            # Get Langfuse callback handler for tracing
+            from app.utils.langfuse_handler import get_langfuse_handler
+            langfuse_handler = get_langfuse_handler()
+            
+            # Pass Langfuse handler via config if available
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+            
             result = await self.chain.ainvoke(
                 {
                     "phase_breakdown": phase_breakdown,
                     "mistakes_by_phase": mistakes_formatted,
-                }
+                },
+                config=config
             )
 
             # Extract weaknesses from structured output
             weaknesses = result.weaknesses
 
-            logger.info(
-                f"Detected {len(weaknesses)} weaknesses for game {game_id}"
-            )
+            # Log agent output
+            logger.info(f"[AGENT] WeaknessDetectionAgent - OUTPUT for game {game_id}:")
+            logger.info(f"[AGENT] WeaknessDetectionAgent - Detected {len(weaknesses)} weaknesses:")
+            for i, weakness in enumerate(weaknesses, 1):
+                logger.info(f"[AGENT] WeaknessDetectionAgent -   {i}. {weakness}")
+            logger.debug(f"[AGENT] WeaknessDetectionAgent - Full weaknesses list: {weaknesses}")
+
             return weaknesses
         except Exception as e:
             logger.error(f"Error detecting weaknesses: {e}")

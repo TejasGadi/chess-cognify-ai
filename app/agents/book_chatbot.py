@@ -2,11 +2,11 @@
 Book Chatbot Agent - RAG-based chatbot for answering questions about chess books.
 """
 from typing import List, Dict, Optional
-from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from app.config import settings
 from app.services.vector_store_service import VectorStoreService
 from app.utils.logger import get_logger
+from app.utils.llm_factory import get_llm
 
 logger = get_logger(__name__)
 
@@ -15,12 +15,8 @@ class BookChatbotAgent:
     """RAG-based chatbot for chess books."""
 
     def __init__(self):
-        """Initialize book chatbot agent."""
-        self.llm = ChatGroq(
-            model=settings.groq_model,
-            temperature=settings.llm_temperature,
-            groq_api_key=settings.groq_api_key,
-        )
+        """Initialize book chatbot agent with OpenAI LLM."""
+        self.llm = get_llm(use_vision=False, require_primary=True, allow_alternate=True)
         self.vector_store_service = VectorStoreService()
 
     def _get_rag_prompt(self, context_chunks: List[Dict], query: str) -> str:
@@ -120,7 +116,16 @@ class BookChatbotAgent:
 
             # Generate response
             logger.info("Generating response with LLM...")
-            response = self.llm.invoke(messages)
+            # Get Langfuse callback handler for tracing
+            from app.utils.langfuse_handler import get_langfuse_handler
+            langfuse_handler = get_langfuse_handler()
+            
+            # Pass Langfuse handler via config if available
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+            
+            response = self.llm.invoke(messages, config=config)
 
             # Extract sources
             sources = []
@@ -133,6 +138,16 @@ class BookChatbotAgent:
                         "score": result.get("score"),
                     }
                 )
+
+            # Log agent output
+            logger.info(f"[AGENT] BookChatbotAgent - OUTPUT:")
+            logger.info(f"[AGENT] BookChatbotAgent - User query: {query[:100]}...")
+            logger.info(f"[AGENT] BookChatbotAgent - Response length: {len(response.content)} characters")
+            logger.info(f"[AGENT] BookChatbotAgent - Response: {response.content}")
+            logger.info(f"[AGENT] BookChatbotAgent - Sources retrieved: {len(sources)}")
+            for i, source in enumerate(sources[:3], 1):
+                logger.debug(f"[AGENT] BookChatbotAgent -   Source {i}: {source.get('filename', 'Unknown')} (score: {source.get('score', 'N/A')})")
+            logger.debug(f"[AGENT] BookChatbotAgent - Full response: {response.content}")
 
             return {
                 "response": response.content,

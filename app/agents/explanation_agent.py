@@ -1,33 +1,38 @@
 """
-Explanation Agent - Generates human-readable explanations for chess mistakes using Groq LLM.
+Explanation Agent - Generates human-readable explanations for chess mistakes.
+Uses OpenAI with FEN-based analysis.
 """
 from typing import Dict, Any, Optional, List
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import settings
 from app.models.game import MoveReview, EngineAnalysis
 from app.models.base import SessionLocal
 from app.schemas.llm_output import ExplanationOutput
 from app.utils.logger import get_logger
+from app.utils.position_formatter import format_position_for_llm
 import asyncio
+import chess
 
 logger = get_logger(__name__)
 
 
 class ExplanationAgent:
-    """Agent for generating move explanations using Groq LLM."""
+    """Agent for generating move explanations using OpenAI with FEN-based analysis."""
 
     # Generate explanations for ALL moves (not just mistakes)
     EXPLANATION_LABELS = ["Best", "Good", "Inaccuracy", "Mistake", "Blunder"]
 
     def __init__(self):
-        """Initialize explanation agent with Groq LLM."""
-        if not settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY not configured")
-
-        self.llm = ChatGroq(
-            model=settings.groq_model,
-            groq_api_key=settings.groq_api_key,
+        """Initialize explanation agent with OpenAI LLM."""
+        if not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY not configured")
+        
+        logger.info(f"[AGENT] ExplanationAgent - Using OpenAI model: {settings.openai_model}")
+        
+        self.llm = ChatOpenAI(
+            model=settings.openai_model,
+            api_key=settings.openai_api_key,
             temperature=settings.llm_temperature,
             max_tokens=settings.llm_max_tokens,
         )
@@ -70,22 +75,24 @@ class ExplanationAgent:
 
 Comment format:
 - Start with "{active_player} played {played_move_san}"
-- Explain the SPECIFIC tactical or positional reason (e.g., "the queen becomes trapped after White's Rc1", "this weakens the f7 square allowing a knight fork", "this loses the bishop to a discovered attack")
-- If it's a mistake/blunder, explain the exact tactical sequence or positional weakness created
+- Describe the position based on the FEN (where pieces are after the move)
+- Explain the SPECIFIC tactical or positional reason (e.g., "the queen on b4 becomes trapped after White's Nb5", "this weakens the f7 square allowing a knight fork", "this loses the bishop to a discovered attack")
+- If it's a mistake/blunder, explain the exact tactical sequence or positional weakness in the current position
 - Compare to the best move and explain what specific opportunity was missed
 - Always mention the best move explicitly
-- When referring to pieces, use "White's queen" or "Black's queen" to be clear
-- Be SPECIFIC: Instead of "allows White to gain advantage", say "the queen becomes trapped after White's Rc1, losing material" or "this weakens the kingside allowing a mating attack"
+- When referring to pieces, use "White's queen on d3" or "Black's queen on b4" to be clear about location
+- Be SPECIFIC: Instead of "allows White to gain advantage", say "the queen on b4 becomes trapped after White's Nb5, losing material" or "this weakens the kingside allowing a mating attack"
 
-Example for a blunder: "Black played Qxb2. This is a blunder because the queen becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
+Example for a blunder: "Black played Qxb2. This is a blunder because the queen on b2 becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
 
 Always analyze the position deeply and explain specific tactical or positional reasons, not just evaluation numbers.""",
                 ),
                 (
                     "human",
-                    """Analyze this chess move:
+                    """Analyze this chess move using the comprehensive position representation below:
 
-Position (FEN): {fen}
+{position_representation}
+
 Active player: {active_player} (This is {active_player}'s turn - they just played this move)
 Move played: {played_move_san} (Evaluation after move: {played_move_eval})
 Best move: {best_move_san} (Evaluation after best move: {best_move_eval})
@@ -100,16 +107,57 @@ Move quality: {label}
 
 **IMPORTANT: The active player is {active_player}. Write your comment from {active_player}'s perspective.**
 
+**CRITICAL: POSITION VERIFICATION**
+All three representations (ASCII board, FEN, piece list) show the SAME position - the position AFTER {played_move_san} was played.
+- Cross-reference all three to verify piece locations
+- If you see a piece in one representation, it must be in all three
+- If there's any discrepancy, trust the piece list as the authoritative source
+
+**ANALYSIS REQUIREMENTS:**
+1. Use the ASCII board to visually understand the position:
+   - Look at the board layout to see piece placement
+   - Identify spatial relationships between pieces
+   - Note the pawn structure visually
+   - **VERIFY: Check that pieces shown match the piece list below**
+
+2. Use the FEN notation for precise position reference:
+   - The FEN represents the position after {played_move_san} was played
+   - Use it to verify piece locations
+   - **VERIFY: Parse the FEN and confirm it matches the ASCII board**
+
+3. Use the piece list to identify exact locations (MOST RELIABLE - AUTHORITATIVE SOURCE):
+   - Reference specific squares from the piece list
+   - This is the authoritative source for piece locations
+   - **VERIFY: Cross-check with ASCII board to ensure consistency**
+   - **If you mention a piece, use the exact square from the piece list**
+   - **Example: If piece list shows "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else**
+
+4. Analyze what {played_move_san} accomplished:
+   - What does this move create or change in the position?
+   - What are the tactical/positional consequences?
+   - What threats or opportunities does this position create?
+
+5. Be SPECIFIC and FACTUAL - CRITICAL VERIFICATION:
+   - **ALWAYS check the piece list first** - it shows exact piece locations
+   - **NEVER mention a piece on a square unless it's in the piece list**
+   - **NEVER say a piece can move to a square unless you verify it's legal from the current position**
+   - Cross-reference with the ASCII board for visual confirmation
+   - If the piece list shows "Knights: b3, f3", then knights are ONLY on b3 and f3 - nowhere else
+   - Explain concrete tactical or positional reasons based on ACTUAL piece locations
+   - Don't make generic statements - be specific about what the position shows
+   - **Example: If piece list shows "Knights: b3, f3", do NOT say "Nb5" - that knight doesn't exist on b5**
+
 Provide a SPECIFIC comment on {active_player}'s move ({played_move_san}) following the format:
 - Start with "{active_player} played {played_move_san}"
-- Explain WHY this specific move is {label_lower}
-- If it's a mistake/blunder, explain what specific tactical or positional problem it creates (trapped pieces, weak squares, tactical sequences, etc.)
+- Describe the position using the ASCII board, FEN, and piece list (where pieces are after the move)
+- Explain WHY this specific move is {label_lower} based on the position
+- If it's a mistake/blunder, explain what specific tactical or positional problem it creates
 - Compare to the best move ({best_move_san}) and explain what {active_player} missed
-- Be specific about chess concepts: mention specific pieces, squares, tactical patterns, or positional weaknesses
+- Be FACTUAL: only mention pieces, squares, and positions that exist in the provided representations
 
-Example for a blunder: "Black played Qxb2. This is a blunder because the queen becomes trapped after White's response. Best move is Qb5, which maintains the queen's mobility and creates threats against White's position."
+Example for a blunder: "Black played Qxb2. This is a blunder because the queen on b2 becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
 
-Always be educational and mention specific chess concepts. Always refer to pieces as "{active_player}'s [piece]" or "the opponent's [piece]" to maintain clarity.""",
+**Remember: Use all three representations (ASCII board, FEN, piece list) to ensure accurate analysis.**""",
                 ),
             ]
         )
@@ -281,14 +329,83 @@ Always be educational and mention specific chess concepts. Always refer to piece
             else:
                 top_moves_context = "Top engine moves: Not available"
 
+            # Format position using combined approach (ASCII board + FEN + piece list)
+            # The FEN is the position BEFORE the move, so we need to apply the move to get position AFTER
+            logger.debug(f"[AGENT] ExplanationAgent - Input FEN (before move): {fen[:60]}...")
+            logger.debug(f"[AGENT] ExplanationAgent - Played move (UCI): {played_move}, (SAN): {played_move_san}")
+            
+            try:
+                board = chess.Board(fen)
+                
+                # Validate FEN can be parsed
+                if not board:
+                    raise ValueError(f"Invalid FEN: {fen[:50]}...")
+                
+                played_move_obj = chess.Move.from_uci(played_move) if played_move else None
+                if not played_move_obj:
+                    raise ValueError(f"Invalid move UCI: {played_move}")
+                
+                # Validate move is legal in the position
+                if played_move_obj not in board.legal_moves:
+                    logger.error(f"[AGENT] ExplanationAgent - CRITICAL: Move {played_move} ({played_move_san}) is NOT legal in FEN position!")
+                    logger.error(f"[AGENT] ExplanationAgent - FEN: {fen}")
+                    logger.error(f"[AGENT] ExplanationAgent - Legal moves in position: {[m.uci() for m in list(board.legal_moves)[:10]]}")
+                    raise ValueError(f"Move {played_move} is not legal in position")
+                
+                # Apply the move to get position AFTER
+                board.push(played_move_obj)
+                fen_after = board.fen()
+                
+                # Highlight the square where the piece moved to
+                highlight_squares = [chess.square_name(played_move_obj.to_square)]
+                
+                # Validate: Verify the position is correct
+                logger.info(f"[AGENT] ExplanationAgent - Position conversion: BEFORE -> AFTER")
+                logger.info(f"[AGENT] ExplanationAgent - FEN before: {fen[:60]}...")
+                logger.info(f"[AGENT] ExplanationAgent - FEN after:  {fen_after[:60]}...")
+                logger.debug(f"[AGENT] ExplanationAgent - Move {played_move_san} applied successfully, position validated")
+                
+            except Exception as e:
+                logger.error(f"[AGENT] ExplanationAgent - CRITICAL ERROR applying move to FEN: {e}", exc_info=True)
+                logger.error(f"[AGENT] ExplanationAgent - FEN: {fen}")
+                logger.error(f"[AGENT] ExplanationAgent - Move: {played_move} ({played_move_san})")
+                # Don't use FEN as-is - this would be wrong. Raise error instead.
+                raise ValueError(f"Failed to apply move {played_move_san} to FEN position: {e}") from e
+            
+            # Generate combined position representation (all three from the same FEN)
+            position_representation = format_position_for_llm(
+                fen_after,
+                last_move=played_move_san,
+                highlight_squares=highlight_squares
+            )
+            
+            # Log position representation for debugging
+            logger.debug(f"[AGENT] ExplanationAgent - Generated position representation (length: {len(position_representation)} chars)")
+            logger.debug(f"[AGENT] ExplanationAgent - Position FEN (after move): {fen_after}")
+            
+            # Extract a sample of the ASCII board for logging
+            ascii_sample = position_representation.split("ASCII BOARD")[1].split("FEN NOTATION")[0][:200] if "ASCII BOARD" in position_representation else "N/A"
+            logger.debug(f"[AGENT] ExplanationAgent - ASCII board sample: {ascii_sample}...")
+            
             # Invoke chain with structured output
             logger.debug(f"[AGENT] ExplanationAgent - Invoking LLM chain for move analysis")
             logger.debug(f"[AGENT] ExplanationAgent - Input: fen={fen[:50]}..., played_move={played_move_san}, best_move={best_move_san}, label={label}")
             logger.debug(f"[AGENT] ExplanationAgent - Active player: {active_player}, evaluation: {played_eval_str} vs {best_eval_str}")
             
+            # Get Langfuse callback handler for tracing
+            from app.utils.langfuse_handler import get_langfuse_handler
+            langfuse_handler = get_langfuse_handler()
+            
+            # Use text-only model with combined position representation
+            # Pass Langfuse handler via config if available
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+            
             result = await self.chain.ainvoke(
                 {
-                    "fen": fen,
+                    "position_representation": position_representation,
+                    "fen": fen_after,  # Also include FEN for reference
                     "active_player": active_player,
                     "played_move_san": played_move_san,
                     "best_move_san": best_move_san,
@@ -299,7 +416,8 @@ Always be educational and mention specific chess concepts. Always refer to piece
                     "played_move_eval": played_eval_str,
                     "best_move_eval": best_eval_str,
                     "evaluation_interpretation": evaluation_interpretation,
-                }
+                },
+                config=config
             )
             
             logger.debug(f"[AGENT] ExplanationAgent - LLM chain completed, extracting structured output")
@@ -309,6 +427,11 @@ Always be educational and mention specific chess concepts. Always refer to piece
             logger.debug(f"[AGENT] ExplanationAgent - Generated explanation length: {len(explanation)} characters")
             if len(explanation) > 500:  # Safety check
                 explanation = explanation[:500] + "..."
+
+            # Log agent output
+            logger.info(f"[AGENT] ExplanationAgent - OUTPUT for move {played_move_san} (label: {label}):")
+            logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
+            logger.debug(f"[AGENT] ExplanationAgent - Move: {played_move_san}, Best: {best_move_san}, Eval: {played_eval_str}")
 
             return explanation
         except Exception as e:
@@ -386,6 +509,29 @@ Always be educational and mention specific chess concepts. Always refer to piece
                 )
                 return None
 
+            # Validate FEN and move data before generating explanation
+            if not engine_analysis.fen:
+                logger.error(f"[AGENT] ExplanationAgent - EngineAnalysis has no FEN for game {game_id}, ply {ply}")
+                return None
+            
+            if not engine_analysis.played_move:
+                logger.error(f"[AGENT] ExplanationAgent - EngineAnalysis has no played_move for game {game_id}, ply {ply}")
+                return None
+            
+            # Log FEN and move for verification
+            logger.info(f"[AGENT] ExplanationAgent - Processing move {ply} for game {game_id}")
+            logger.debug(f"[AGENT] ExplanationAgent - FEN (before move, from DB): {engine_analysis.fen[:60]}...")
+            logger.debug(f"[AGENT] ExplanationAgent - Played move (UCI): {engine_analysis.played_move}")
+            logger.debug(f"[AGENT] ExplanationAgent - Best move (UCI): {engine_analysis.best_move}")
+            
+            # Validate FEN can be parsed
+            try:
+                test_board = chess.Board(engine_analysis.fen)
+                logger.debug(f"[AGENT] ExplanationAgent - FEN validation: OK (turn: {'White' if test_board.turn == chess.WHITE else 'Black'})")
+            except Exception as e:
+                logger.error(f"[AGENT] ExplanationAgent - FEN validation failed: {e}")
+                return None
+            
             # Generate explanation with top moves data
             eval_change = f"{engine_analysis.eval_before} -> {engine_analysis.eval_after}"
             top_moves = engine_analysis.top_moves if hasattr(engine_analysis, 'top_moves') and engine_analysis.top_moves else None
@@ -393,7 +539,7 @@ Always be educational and mention specific chess concepts. Always refer to piece
             best_move_eval = engine_analysis.eval_best
             
             explanation = await self.generate_explanation(
-                fen=engine_analysis.fen,
+                fen=engine_analysis.fen,  # FEN BEFORE the move (will be converted to AFTER in generate_explanation)
                 played_move=engine_analysis.played_move,
                 best_move=engine_analysis.best_move,
                 label=move_review.label,
@@ -407,7 +553,11 @@ Always be educational and mention specific chess concepts. Always refer to piece
             move_review.explanation = explanation
             db.commit()
 
-            logger.info(f"Generated explanation for game {game_id}, ply {ply}")
+            # Log agent output
+            logger.info(f"[AGENT] ExplanationAgent - OUTPUT for game {game_id}, ply {ply}:")
+            logger.info(f"[AGENT] ExplanationAgent - Explanation: {explanation}")
+            logger.debug(f"[AGENT] ExplanationAgent - Move: {engine_analysis.played_move}, Label: {move_review.label}")
+
             return explanation
         except Exception as e:
             db.rollback()
@@ -503,10 +653,20 @@ Always be educational and mention specific chess concepts. Always refer to piece
                     generated_count += 1
 
             logger.info(
-                f"Generated {generated_count} explanations for game {game_id} "
+                f"[AGENT] ExplanationAgent - Generated {generated_count} explanations for game {game_id} "
                 f"({len(cached_explanations)} cached, {error_count} errors, "
                 f"total: {len(explanations)}/{len(move_reviews)})"
             )
+            
+            # Log agent output summary
+            logger.info(f"[AGENT] ExplanationAgent - OUTPUT SUMMARY for game {game_id}:")
+            logger.info(f"[AGENT] ExplanationAgent - Total explanations: {len(explanations)}")
+            logger.info(f"[AGENT] ExplanationAgent - Generated: {generated_count}, Cached: {len(cached_explanations)}, Errors: {error_count}")
+            if explanations:
+                sample_plies = list(explanations.keys())[:3]
+                for ply in sample_plies:
+                    logger.debug(f"[AGENT] ExplanationAgent - Sample output (ply {ply}): {explanations[ply][:100]}...")
+            
             return explanations
         finally:
             db.close()

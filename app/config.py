@@ -39,11 +39,15 @@ class Settings(BaseSettings):
     stockfish_hash: int = 256  # MB
     stockfish_timeout: int = 30  # seconds
 
-    # LLM Providers - Groq (primary and alternative with different models)
-    llm_provider: str = "groq"  # groq (primary)
-    groq_api_key: Optional[str] = None
-    groq_model: str = "llama-3.1-70b-versatile"  # Primary model
-    groq_alternative_model: str = "mixtral-8x7b-32768"  # Alternative model
+    # LLM Provider - OpenAI only
+    llm_provider: str = "openai"
+    
+    # OpenAI Settings
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o"  # Standard model (vision-capable)
+    openai_vision_model: str = "gpt-4o"  # Vision-capable model for explanations
+    
+    use_vision_for_explanations: bool = True  # Use vision model for move explanations
 
     # LLM Settings
     llm_temperature: float = 0.7
@@ -60,6 +64,12 @@ class Settings(BaseSettings):
     # Embedding Model - Ollama (Local)
     ollama_base_url: str = "http://localhost:11434"
     ollama_embedding_model: str = "bge-m3"
+
+    # Langfuse Observability
+    langfuse_secret_key: Optional[str] = None
+    langfuse_public_key: Optional[str] = None
+    langfuse_base_url: str = "https://cloud.langfuse.com"  # or "https://us.cloud.langfuse.com" for US region
+    langfuse_enabled: bool = True  # Set to False to disable Langfuse tracing
 
     # Security
     api_key_expiration_hours: int = 24

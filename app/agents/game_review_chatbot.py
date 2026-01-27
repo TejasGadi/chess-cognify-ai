@@ -2,7 +2,6 @@
 Game Review Chatbot Agent - Answers questions about reviewed games using cached data.
 """
 from typing import Dict, Any, List, Optional
-from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.config import settings
@@ -10,6 +9,7 @@ from app.models.game import Game, EngineAnalysis, MoveReview, GameSummary
 from app.models.base import SessionLocal
 from app.services.pgn_service import PGNService
 from app.utils.logger import get_logger
+from app.utils.llm_factory import get_llm
 
 logger = get_logger(__name__)
 
@@ -18,17 +18,8 @@ class GameReviewChatbotAgent:
     """Chatbot agent for answering questions about reviewed games."""
 
     def __init__(self):
-        """Initialize chatbot agent with Groq LLM."""
-        if not settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY not configured")
-
-        self.llm = ChatGroq(
-            model=settings.groq_model,
-            groq_api_key=settings.groq_api_key,
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
-        )
-
+        """Initialize chatbot agent with OpenAI LLM."""
+        self.llm = get_llm(use_vision=False, require_primary=True, allow_alternate=True)
         self.pgn_service = PGNService()
 
     def _load_game_context(self, game_id: str) -> Dict[str, Any]:
@@ -250,12 +241,26 @@ Be educational, clear, and reference specific moves and evaluations from the ana
             messages.append(HumanMessage(content=user_message))
 
             # Invoke LLM
-            response = await self.llm.ainvoke(messages)
+            # Get Langfuse callback handler for tracing
+            from app.utils.langfuse_handler import get_langfuse_handler
+            langfuse_handler = get_langfuse_handler()
+            
+            # Pass Langfuse handler via config if available
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+            
+            response = await self.llm.ainvoke(messages, config=config)
 
             # Extract response text
             response_text = response.content if hasattr(response, "content") else str(response)
 
-            logger.info(f"Generated chatbot response for game {game_id}")
+            # Log agent output
+            logger.info(f"[AGENT] GameReviewChatbotAgent - OUTPUT for game {game_id}:")
+            logger.info(f"[AGENT] GameReviewChatbotAgent - User query: {user_message[:100]}...")
+            logger.info(f"[AGENT] GameReviewChatbotAgent - Response length: {len(response_text)} characters")
+            logger.info(f"[AGENT] GameReviewChatbotAgent - Response: {response_text}")
+            logger.debug(f"[AGENT] GameReviewChatbotAgent - Full response: {response_text}")
 
             return {
                 "response": response_text,

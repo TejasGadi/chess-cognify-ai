@@ -27,12 +27,17 @@ st.set_page_config(
 
 # Configuration (after set_page_config)
 if "API_BASE_URL" not in st.session_state:
+    # Use default API URL (secrets are optional)
+    st.session_state.API_BASE_URL = "http://localhost:8000"
+    # Optionally read from secrets if available (no warning if missing)
     try:
-        # Try to get from secrets, fallback to default
-        st.session_state.API_BASE_URL = st.secrets.get("API_BASE_URL", "http://localhost:8000")
-    except:
-        # If secrets not configured, use default
-        st.session_state.API_BASE_URL = "http://localhost:8000"
+        if hasattr(st, "secrets") and st.secrets:
+            api_url = st.secrets.get("API_BASE_URL")
+            if api_url:
+                st.session_state.API_BASE_URL = api_url
+    except (AttributeError, FileNotFoundError, KeyError):
+        # Secrets file not found or not configured - use default
+        pass
 
 # Initialize session state
 if "selected_game_id" not in st.session_state:

@@ -164,6 +164,21 @@ class SupervisorAgent:
             state["engine_analyses"] = analyses
             state["engine_analysis_complete"] = True
             state["progress_percentage"] = 40
+            
+            # Log agent output
+            logger.info(f"[WORKFLOW] Node: analyze_engine - OUTPUT: {len(analyses)} moves analyzed")
+            if analyses:
+                # Sample analysis outputs
+                sample_analyses = analyses[:3]
+                for analysis in sample_analyses:
+                    logger.debug(f"[WORKFLOW] Node: analyze_engine - Sample (ply {analysis.get('ply')}): {analysis.get('played_move')} -> eval: {analysis.get('eval_after')}, best: {analysis.get('best_move')}")
+                # Summary stats
+                depths_used = [a.get('analysis_depth', 'default') for a in analyses]
+                depth_counts = {}
+                for depth in depths_used:
+                    depth_counts[depth] = depth_counts.get(depth, 0) + 1
+                logger.info(f"[WORKFLOW] Node: analyze_engine - Analysis depth breakdown: {depth_counts}")
+            
             logger.info(f"[WORKFLOW] Node: analyze_engine - SUCCESS: {len(analyses)} moves analyzed")
             logger.debug(f"[WORKFLOW] State after analyze_engine: engine_analysis_complete=True, progress=40%")
         except Exception as e:
@@ -232,6 +247,21 @@ class SupervisorAgent:
             state["classifications"] = classifications
             state["classification_complete"] = True
             state["progress_percentage"] = 60
+            
+            # Log agent output
+            logger.info(f"[WORKFLOW] Node: classify_moves - OUTPUT: {len(classifications)} moves classified")
+            if classifications:
+                # Count by label
+                label_counts = {}
+                for cls in classifications:
+                    label = cls.get("label", "Unknown")
+                    label_counts[label] = label_counts.get(label, 0) + 1
+                logger.info(f"[WORKFLOW] Node: classify_moves - Classification breakdown: {label_counts}")
+                # Sample classifications
+                sample_classifications = classifications[:5]
+                for cls in sample_classifications:
+                    logger.debug(f"[WORKFLOW] Node: classify_moves - Sample (ply {cls.get('ply')}): {cls.get('label')} - {cls.get('centipawn_loss', 'N/A')} cp loss")
+            
             logger.info(f"[WORKFLOW] Node: classify_moves - SUCCESS: {len(classifications)} moves classified")
             logger.debug(f"[WORKFLOW] State after classify_moves: classification_complete=True, progress=60%")
         except Exception as e:
@@ -275,6 +305,14 @@ class SupervisorAgent:
             state["progress_percentage"] = 75
             logger.info(f"[WORKFLOW] Node: generate_explanations - SUCCESS: {len(explanations)} explanations generated")
             logger.info(f"[AGENT] ExplanationAgent - Completed: {len(explanations)} explanations generated")
+            
+            # Log agent output details
+            logger.info(f"[WORKFLOW] Node: generate_explanations - OUTPUT: {len(explanations)} explanations")
+            if explanations:
+                sample_plies = sorted(list(explanations.keys()))[:5]
+                for ply in sample_plies:
+                    logger.info(f"[WORKFLOW] Node: generate_explanations - Sample output (ply {ply}): {explanations[ply][:150]}...")
+            
             logger.debug(f"[WORKFLOW] State after generate_explanations: explanation_complete=True, progress=75%")
         except Exception as e:
             logger.error(f"[WORKFLOW] Node: generate_explanations - EXCEPTION: {e}", exc_info=True)
@@ -331,7 +369,16 @@ class SupervisorAgent:
             state["rating_confidence"] = rating_info["confidence"]
             state["accuracy_complete"] = True
             state["progress_percentage"] = 90
-            logger.info(f"Accuracy and rating complete: {accuracy_metrics['accuracy']}% accuracy")
+            
+            # Log agent output
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - OUTPUT:")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Accuracy: {accuracy_metrics['accuracy']}%")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Estimated Rating: {rating_info['estimated_rating']}")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Rating Confidence: {rating_info['confidence']}")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Blunders: {accuracy_metrics.get('blunder_count', 0)}, Mistakes: {accuracy_metrics.get('mistake_count', 0)}, Inaccuracies: {accuracy_metrics.get('inaccuracy_count', 0)}")
+            logger.debug(f"[WORKFLOW] Node: calculate_accuracy_rating - Full metrics: {accuracy_metrics}")
+            
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Accuracy and rating complete: {accuracy_metrics['accuracy']}% accuracy")
         except Exception as e:
             logger.error(f"Error calculating accuracy/rating: {e}")
             state["accuracy_error"] = str(e)
@@ -361,7 +408,14 @@ class SupervisorAgent:
             state["weaknesses"] = weaknesses
             state["weakness_detection_complete"] = True
             state["progress_percentage"] = 100
-            logger.info(f"Weakness detection complete: {len(weaknesses)} weaknesses found")
+            
+            # Log agent output
+            logger.info(f"[WORKFLOW] Node: detect_weaknesses - OUTPUT: {len(weaknesses)} weaknesses detected")
+            logger.info(f"[WORKFLOW] Node: detect_weaknesses - Weaknesses: {weaknesses}")
+            for i, weakness in enumerate(weaknesses, 1):
+                logger.info(f"[WORKFLOW] Node: detect_weaknesses -   {i}. {weakness}")
+            
+            logger.info(f"[WORKFLOW] Node: detect_weaknesses - Weakness detection complete: {len(weaknesses)} weaknesses found")
         except Exception as e:
             logger.error(f"Error detecting weaknesses: {e}")
             state["weakness_error"] = str(e)
@@ -576,12 +630,25 @@ class SupervisorAgent:
         app = graph.compile()
         logger.info("[WORKFLOW] LangGraph workflow compiled and ready for execution")
 
+        # Get Langfuse callback handler for tracing
+        from app.utils.langfuse_handler import get_langfuse_handler
+        langfuse_handler = get_langfuse_handler()
+        if langfuse_handler:
+            logger.info("[WORKFLOW] Langfuse tracing enabled for workflow")
+        else:
+            logger.debug("[WORKFLOW] Langfuse tracing disabled or not configured")
+        
         # Execute workflow
         try:
             logger.info(f"[WORKFLOW] ========== EXECUTING WORKFLOW FOR GAME {game_id} ==========")
             logger.debug(f"[WORKFLOW] Invoking workflow with initial state: step={state.get('current_step', 'unknown')}, progress={state.get('progress_percentage', 0)}%")
             
-            final_state = await app.ainvoke(state)
+            # LangGraph supports callbacks via config
+            config = {}
+            if langfuse_handler:
+                config["callbacks"] = [langfuse_handler]
+            
+            final_state = await app.ainvoke(state, config=config)
             
             # Check if final_state is None
             if final_state is None:

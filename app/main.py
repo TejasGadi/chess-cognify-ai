@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from app.config import settings
-from app.utils.logger import setup_logging
+from app.utils.logger import setup_logging, get_logger
+from app.utils.langfuse_handler import initialize_langfuse, shutdown_langfuse
 from app.api.exceptions import (
     validation_exception_handler,
     database_exception_handler,
@@ -15,6 +16,10 @@ from app.api.exceptions import (
 
 # Initialize logging
 setup_logging()
+logger = get_logger(__name__)
+
+# Initialize Langfuse for observability
+initialize_langfuse()
 
 # Create FastAPI app
 app = FastAPI(
@@ -72,3 +77,11 @@ app.include_router(games_router)
 app.include_router(chat_router)
 app.include_router(books_router)
 app.include_router(status_router)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown."""
+    logger.info("Shutting down application...")
+    shutdown_langfuse()
+    logger.info("Application shutdown complete")

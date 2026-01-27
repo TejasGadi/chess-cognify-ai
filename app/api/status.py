@@ -26,7 +26,7 @@ async def get_system_status(db: Session = Depends(get_db)):
     - Redis cache
     - Qdrant vector database
     - Ollama embeddings
-    - Groq LLM API
+    - OpenAI LLM API
     - Stockfish engine
     """
     status_info: Dict[str, Any] = {
@@ -115,39 +115,41 @@ async def get_system_status(db: Session = Depends(get_db)):
             "message": f"Ollama connection failed: {str(e)}",
         }
 
-    # Check Groq API
+    # Check OpenAI API (Primary)
     try:
-        if settings.groq_api_key:
+        if settings.openai_api_key:
             async with httpx.AsyncClient() as client:
-                # Use GET instead of POST for models endpoint
                 response = await client.get(
-                    "https://api.groq.com/openai/v1/models",
-                    headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {settings.openai_api_key}"},
                     timeout=5.0,
                 )
                 if response.status_code == 200:
-                    status_info["services"]["groq"] = {
+                    status_info["services"]["openai"] = {
                         "status": "healthy",
-                        "message": "Groq API is accessible",
-                        "model": settings.groq_model,
+                        "message": "OpenAI API is accessible",
+                        "model": settings.openai_model,
+                        "vision_model": settings.openai_vision_model,
                     }
                 else:
                     status_info["status"] = "degraded"
-                    status_info["services"]["groq"] = {
+                    status_info["services"]["openai"] = {
                         "status": "unhealthy",
-                        "message": f"Groq API returned status {response.status_code}",
+                        "message": f"OpenAI API returned status {response.status_code}",
                     }
         else:
-            status_info["services"]["groq"] = {
-                "status": "unconfigured",
-                "message": "Groq API key not configured",
+            status_info["status"] = "degraded"
+            status_info["services"]["openai"] = {
+                "status": "unhealthy",
+                "message": "OpenAI API key not configured",
             }
     except Exception as e:
         status_info["status"] = "degraded"
-        status_info["services"]["groq"] = {
+        status_info["services"]["openai"] = {
             "status": "unhealthy",
-            "message": f"Groq API connection failed: {str(e)}",
+            "message": f"OpenAI API connection failed: {str(e)}",
         }
+
 
     # Check Stockfish
     try:
