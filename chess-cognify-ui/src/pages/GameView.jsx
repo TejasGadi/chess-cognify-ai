@@ -266,8 +266,43 @@ const GameView = () => {
 
                             {currentMoveAnalysis ? (
                                 <div className="space-y-2 text-left">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide
+                                    {currentMoveAnalysis.top_moves && currentMoveAnalysis.top_moves.length > 0 && (
+                                        <div className="space-y-1.5 py-2 border-b mb-2">
+                                            {currentMoveAnalysis.top_moves.map((m, idx) => (
+                                                <div key={idx} className="flex items-start gap-2 text-xs group/line">
+                                                    <div className={`flex-shrink-0 w-12 text-center py-0.5 rounded font-mono font-bold
+                                                        ${m.eval >= 0 ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-100'}
+                                                    `}>
+                                                        {m.eval_str}
+                                                    </div>
+                                                    <div className="flex-1 text-muted-foreground leading-tight line-clamp-2">
+                                                        {m.pv_san && m.pv_san.length > 0 ? (
+                                                            m.pv_san.map((pvMove, pvIdx) => (
+                                                                <span key={pvIdx}>
+                                                                    {pvIdx % 2 === 0 ? (
+                                                                        <span className="text-foreground/60 mr-1">
+                                                                            {Math.floor((currentMoveAnalysis.ply + pvIdx) / 2) + 1}.
+                                                                            {(currentMoveAnalysis.ply + pvIdx) % 2 === 1 && "..."}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    <span className={`mr-1.5 ${pvIdx === 0 ? 'font-bold text-foreground' : 'text-foreground/80'}`}>
+                                                                        {pvMove}
+                                                                    </span>
+                                                                </span>
+                                                            ))
+                                                        ) : (
+                                                            <span className="font-bold text-foreground">{m.move_san}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="text-sm font-medium text-muted-foreground mr-1">Your move:</span>
+                                        <span className="text-sm font-bold">{currentMoveAnalysis.move_san}</span>
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
                                             ${currentMoveAnalysis.label === 'Best' ? 'bg-green-500/10 text-green-500' :
                                                 currentMoveAnalysis.label === 'Blunder' ? 'bg-red-500/10 text-red-500' :
                                                     currentMoveAnalysis.label === 'Mistake' ? 'bg-orange-500/10 text-orange-500' :
@@ -275,13 +310,14 @@ const GameView = () => {
                                         `}>
                                             {currentMoveAnalysis.label}
                                         </span>
-                                        {currentMoveAnalysis.centipawn_loss !== undefined && (
-                                            <span className="text-xs text-muted-foreground">
-                                                Loss: {currentMoveAnalysis.centipawn_loss} cp
+                                        {currentMoveAnalysis.centipawn_loss !== undefined && currentMoveAnalysis.centipawn_loss > 0 && (
+                                            <span className="text-[10px] text-muted-foreground">
+                                                -{currentMoveAnalysis.centipawn_loss} cp
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-sm leading-relaxed">
+
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
                                         {currentMoveAnalysis.explanation || "No explanation available."}
                                     </p>
                                 </div>
@@ -349,9 +385,9 @@ const GameView = () => {
                             )}
                         </div>
                     </Tabs.Content>
-                </Tabs.Root>
-            </div>
-        </div>
+                </Tabs.Root >
+            </div >
+        </div >
     );
 };
 

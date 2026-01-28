@@ -275,12 +275,26 @@ class StockfishService:
                         pawns = centipawns / 100.0
                         eval_str = f"{pawns:+.2f}"
                     
+                    # Get PV moves in SAN
+                    pv_moves_san = []
+                    pv_board = board.copy()
+                    for m in pv:
+                        try:
+                            if m in pv_board.legal_moves:
+                                pv_moves_san.append(pv_board.san(m))
+                                pv_board.push(m)
+                            else:
+                                pv_moves_san.append(m.uci())
+                        except:
+                            pv_moves_san.append(m.uci())
+
                     top_moves.append({
                         "move": move_uci,
                         "move_san": move_san,
                         "eval": centipawns,
                         "eval_str": eval_str,
                         "rank": idx + 1,
+                        "pv_san": pv_moves_san,
                     })
             else:
                 # Fallback: single analysis result (multipv might not be supported or only 1 move)

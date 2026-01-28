@@ -62,6 +62,7 @@ class TopMoveInfo(BaseModel):
     eval: float  # Centipawns
     eval_str: str  # Human-readable
     rank: int  # 1 = best, 2 = second best, etc.
+    pv_san: Optional[List[str]] = None
 
 
 class EngineAnalysisResponse(BaseModel):
