@@ -114,18 +114,16 @@ class MoveClassificationService:
 
         # Convert to pawns for threshold comparison
         # Use absolute value since delta can be positive (worse for player) or negative (better for player)
-        # We only care about the magnitude of the difference
         delta_pawns = abs(delta_cp) / 100.0
 
-        # Classify based on thresholds (chess.com style: Best, Good, Inaccuracy, Mistake, Blunder)
-        # Thresholds are in terms of absolute pawn difference
-        if delta_pawns <= 0.5:  # Within 0.5 pawns of best move
+        # Classify based on thresholds
+        if delta_pawns <= MoveClassificationService.THRESHOLD_GOOD:
             label = "Good"
-        elif delta_pawns <= 1.0:  # Within 1.0 pawns of best move
+        elif delta_pawns <= MoveClassificationService.THRESHOLD_INACCURACY:
             label = "Inaccuracy"
-        elif delta_pawns <= 2.0:  # Within 2.0 pawns of best move
+        elif delta_pawns <= MoveClassificationService.THRESHOLD_MISTAKE:
             label = "Mistake"
-        else:  # More than 2.0 pawns worse than best move
+        else:
             label = "Blunder"
 
         # Centipawn loss is the absolute value of delta (always positive)

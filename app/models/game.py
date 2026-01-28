@@ -74,6 +74,7 @@ class GameSummary(Base):
     accuracy = Column(Integer, nullable=True)  # Overall game accuracy
     estimated_rating = Column(Integer, nullable=True)
     rating_confidence = Column(String, nullable=True)  # low, medium, high
+    details = Column(JSON, nullable=True)  # Detailed stats (acc per player, move counts, etc.)
     weaknesses = Column(JSON, nullable=True)  # List of weakness strings
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

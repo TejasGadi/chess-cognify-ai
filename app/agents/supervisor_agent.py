@@ -348,42 +348,58 @@ class SupervisorAgent:
                 state["game_id"], state["classifications"]
             )
 
-            # Estimate rating
+            # Estimate ratings per player
             time_control = state.get("metadata", {}).get("time_control", None)
-            rating_info = self.accuracy_service.estimate_rating(
-                accuracy_metrics["accuracy"],
-                accuracy_metrics["blunder_count"],
+            white_rating = self.accuracy_service.estimate_rating(
+                accuracy_metrics["white_accuracy"],
+                accuracy_metrics["move_counts"]["white"],
                 time_control,
             )
+            black_rating = self.accuracy_service.estimate_rating(
+                accuracy_metrics["black_accuracy"],
+                accuracy_metrics["move_counts"]["black"],
+                time_control,
+            )
+
+            # Combine details
+            details = {
+                "white_accuracy": accuracy_metrics["white_accuracy"],
+                "black_accuracy": accuracy_metrics["black_accuracy"],
+                "white_rating": white_rating["estimated_rating"],
+                "black_rating": black_rating["estimated_rating"],
+                "move_counts": accuracy_metrics["move_counts"],
+                "phase_stats": accuracy_metrics["phase_stats"]
+            }
 
             # Persist summary
             self.accuracy_service.persist_game_summary(
                 state["game_id"],
                 accuracy_metrics["accuracy"],
-                rating_info["estimated_rating"],
-                rating_info["confidence"],
+                white_rating["estimated_rating"], # Use white rating as default overall for now
+                white_rating["confidence"],
+                details=details
             )
 
             state["accuracy"] = accuracy_metrics["accuracy"]
-            state["estimated_rating"] = rating_info["estimated_rating"]
-            state["rating_confidence"] = rating_info["confidence"]
+            state["estimated_rating"] = white_rating["estimated_rating"]
+            state["rating_confidence"] = white_rating["confidence"]
             state["accuracy_complete"] = True
             state["progress_percentage"] = 90
             
             # Log agent output
             logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - OUTPUT:")
-            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Accuracy: {accuracy_metrics['accuracy']}%")
-            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Estimated Rating: {rating_info['estimated_rating']}")
-            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Rating Confidence: {rating_info['confidence']}")
-            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Blunders: {accuracy_metrics.get('blunder_count', 0)}, Mistakes: {accuracy_metrics.get('mistake_count', 0)}, Inaccuracies: {accuracy_metrics.get('inaccuracy_count', 0)}")
-            logger.debug(f"[WORKFLOW] Node: calculate_accuracy_rating - Full metrics: {accuracy_metrics}")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Overall Accuracy: {accuracy_metrics['accuracy']}%")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - White: {accuracy_metrics['white_accuracy']}% ({white_rating['estimated_rating']})")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Black: {accuracy_metrics['black_accuracy']}% ({black_rating['estimated_rating']})")
             
-            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Accuracy and rating complete: {accuracy_metrics['accuracy']}% accuracy")
+            logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Accuracy and rating complete")
         except Exception as e:
-            logger.error(f"Error calculating accuracy/rating: {e}")
+            logger.error(f"Error calculating accuracy/rating: {e}", exc_info=True)
             state["accuracy_error"] = str(e)
             state["accuracy_complete"] = False
             state["review_error"] = f"Accuracy calculation error: {e}"
+            # Don't set review_complete = True here, let it fail properly if it's a critical error
+            # Or set it if we want to allow partial results
             state["review_complete"] = True
 
         return state
@@ -396,6 +412,12 @@ class SupervisorAgent:
         
         game_id = state.get('game_id', 'unknown')
         logger.info(f"[WORKFLOW] Node: detect_weaknesses - Starting for game {game_id}")
+        
+        # Don't run if previous step failed critically
+        if state.get("review_error") and not state.get("accuracy_complete"):
+             logger.warning(f"[WORKFLOW] Skipping weakness detection for game {game_id} due to previous error")
+             return state
+
         state["current_step"] = "weakness_detection"
         state["progress_percentage"] = 95
 

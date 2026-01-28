@@ -35,117 +35,121 @@ class AccuracyRatingService:
         self, classifications: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Calculate overall game accuracy.
+        Calculate detailed game accuracy metrics, including per-player and per-phase stats.
 
         Args:
-            classifications: List of move classifications with centipawn_loss
+            classifications: List of move classifications with centipawn_loss, ply, and phase
 
         Returns:
-            Dictionary with accuracy metrics:
+            Dictionary with comprehensive accuracy metrics:
             {
-                "accuracy": int,  # Overall game accuracy (0-100)
-                "move_accuracies": List[int],  # Per-move accuracies
-                "blunder_count": int,
-                "mistake_count": int,
-                "inaccuracy_count": int,
+                "accuracy": int,  # Overall
+                "white_accuracy": int,
+                "black_accuracy": int,
+                "move_counts": {
+                    "white": { "Best": X, "Good": Y, ... },
+                    "black": { "Best": A, "Good": B, ... }
+                },
+                "phase_stats": {
+                    "white": { "opening": {"accuracy": X, "moves": N}, ... },
+                    "black": { "opening": {"accuracy": A, "moves": M}, ... }
+                }
             }
         """
         if not classifications:
             return {
                 "accuracy": 0,
-                "move_accuracies": [],
-                "blunder_count": 0,
-                "mistake_count": 0,
-                "inaccuracy_count": 0,
+                "white_accuracy": 0,
+                "black_accuracy": 0,
+                "move_counts": {"white": {}, "black": {}},
+                "phase_stats": {"white": {}, "black": {}},
             }
 
-        move_accuracies = []
-        blunder_count = 0
-        mistake_count = 0
-        inaccuracy_count = 0
+        labels = ["Best", "Good", "Inaccuracy", "Mistake", "Blunder"]
+        
+        # Initialize stats
+        results = {
+            "white": {"moves": [], "counts": {l: 0 for l in labels}, "phases": {}},
+            "black": {"moves": [], "counts": {l: 0 for l in labels}, "phases": {}}
+        }
 
         for classification in classifications:
+            ply = classification.get("ply", 0)
+            is_white = (ply % 2 != 0)  # Ply 1, 3, 5... are White
+            player_key = "white" if is_white else "black"
+            
             centipawn_loss = classification.get("centipawn_loss", 0)
             accuracy = self.calculate_move_accuracy(centipawn_loss)
-            move_accuracies.append(accuracy)
+            
+            label = classification.get("label", "Good")
+            phase = classification.get("phase", "middlegame")
 
-            label = classification.get("label", "").lower()
-            if label == "blunder":
-                blunder_count += 1
-            elif label == "mistake":
-                mistake_count += 1
-            elif label == "inaccuracy":
-                inaccuracy_count += 1
+            # Update player stats
+            results[player_key]["moves"].append(accuracy)
+            if label in results[player_key]["counts"]:
+                results[player_key]["counts"][label] += 1
+            
+            # Update phase stats
+            if phase not in results[player_key]["phases"]:
+                results[player_key]["phases"][phase] = []
+            results[player_key]["phases"][phase].append(accuracy)
 
-        overall_accuracy = int(mean(move_accuracies)) if move_accuracies else 0
+        # Calculate averages
+        white_acc = int(mean(results["white"]["moves"])) if results["white"]["moves"] else 0
+        black_acc = int(mean(results["black"]["moves"])) if results["black"]["moves"] else 0
+        overall_acc = int(mean(results["white"]["moves"] + results["black"]["moves"])) if (results["white"]["moves"] or results["black"]["moves"]) else 0
+
+        # Format phase statistics
+        phase_stats = {"white": {}, "black": {}}
+        for color in ["white", "black"]:
+            for phase, accs in results[color]["phases"].items():
+                phase_stats[color][phase] = {
+                    "accuracy": int(mean(accs)) if accs else 0,
+                    "count": len(accs)
+                }
 
         return {
-            "accuracy": overall_accuracy,
-            "move_accuracies": move_accuracies,
-            "blunder_count": blunder_count,
-            "mistake_count": mistake_count,
-            "inaccuracy_count": inaccuracy_count,
+            "accuracy": overall_acc,
+            "white_accuracy": white_acc,
+            "black_accuracy": black_acc,
+            "move_counts": {
+                "white": results["white"]["counts"],
+                "black": results["black"]["counts"]
+            },
+            "phase_stats": phase_stats,
+            "blunder_count": results["white"]["counts"].get("Blunder", 0) + results["black"]["counts"].get("Blunder", 0) # For legacy reasons
         }
 
     def estimate_rating(
         self,
         accuracy: int,
-        blunder_count: int,
+        count_stats: Dict[str, int],
         time_control: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Estimate player rating based on accuracy and blunder count.
-
-        This is a heuristic estimation, not based on Elo mathematics.
-
-        Args:
-            accuracy: Overall game accuracy (0-100)
-            blunder_count: Number of blunders in the game
-            time_control: Optional time control string (e.g., "600+0")
-
-        Returns:
-            Dictionary with rating estimate:
-            {
-                "estimated_rating": int,
-                "confidence": str,  # "low", "medium", "high"
-            }
+        Estimate player rating based on accuracy and move counts.
         """
         # Base rating from accuracy
-        # Rough mapping: 95+ = 2000+, 85+ = 1600+, 75+ = 1200+, 65+ = 800+
-        base_rating = 400 + (accuracy * 16)  # Linear mapping
-
-        # Adjust for blunders
-        # Each blunder reduces estimated rating by ~50 points
-        blunder_penalty = blunder_count * 50
-        estimated_rating = int(base_rating - blunder_penalty)
+        base_rating = 400 + (accuracy * 20)  # Slightly more aggressive linear mapping
+        
+        # Penalties for negative classifications
+        blunder_penalty = count_stats.get("Blunder", 0) * 60
+        mistake_penalty = count_stats.get("Mistake", 0) * 30
+        inaccuracy_penalty = count_stats.get("Inaccuracy", 0) * 10
+        
+        estimated_rating = int(base_rating - blunder_penalty - mistake_penalty - inaccuracy_penalty)
 
         # Clamp to reasonable range
-        estimated_rating = max(400, min(2500, estimated_rating))
+        estimated_rating = max(400, min(2800, estimated_rating))
 
         # Determine confidence
-        # Higher confidence if accuracy is consistent and blunders are few
-        if blunder_count == 0 and accuracy >= 80:
+        blunder_count = count_stats.get("Blunder", 0)
+        if blunder_count == 0 and accuracy >= 85:
             confidence = "high"
         elif blunder_count <= 2 and accuracy >= 70:
             confidence = "medium"
         else:
             confidence = "low"
-
-        # Adjust confidence based on time control if provided
-        if time_control:
-            # Fast time controls (bullet/blitz) may have more blunders
-            # but that doesn't necessarily mean lower skill
-            try:
-                # Parse time control (format: "600+0" or "180+2")
-                parts = time_control.split("+")
-                initial_seconds = int(parts[0])
-                if initial_seconds < 180:  # Bullet
-                    confidence = "low" if confidence == "high" else confidence
-                elif initial_seconds < 600:  # Blitz
-                    if confidence == "high":
-                        confidence = "medium"
-            except (ValueError, IndexError):
-                pass  # Ignore parsing errors
 
         return {
             "estimated_rating": estimated_rating,
@@ -201,6 +205,7 @@ class AccuracyRatingService:
         accuracy: int,
         estimated_rating: int,
         rating_confidence: str,
+        details: Optional[Dict[str, Any]] = None,
         weaknesses: Optional[List[str]] = None,
     ) -> None:
         """
@@ -211,7 +216,8 @@ class AccuracyRatingService:
             accuracy: Overall game accuracy
             estimated_rating: Estimated player rating
             rating_confidence: Confidence level (low/medium/high)
-            weaknesses: Optional list of weaknesses (from Phase 4)
+            details: Detailed stats (per player accuracy, counts, etc.)
+            weaknesses: Optional list of weaknesses
         """
         db = SessionLocal()
         try:
@@ -227,6 +233,8 @@ class AccuracyRatingService:
                 summary.accuracy = accuracy
                 summary.estimated_rating = estimated_rating
                 summary.rating_confidence = rating_confidence
+                if details is not None:
+                    summary.details = details
                 if weaknesses is not None:
                     summary.weaknesses = weaknesses
             else:
@@ -236,6 +244,7 @@ class AccuracyRatingService:
                     accuracy=accuracy,
                     estimated_rating=estimated_rating,
                     rating_confidence=rating_confidence,
+                    details=details or {},
                     weaknesses=weaknesses or [],
                 )
                 db.add(summary)
