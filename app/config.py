@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 500
     
     # Parallel Processing
-    explanation_concurrency: int = 10  # Max concurrent explanation generations
+    explanation_concurrency: int = 3  # Max concurrent explanation generations
 
     # Vector Database (Books) - Qdrant
     qdrant_url: str = "http://localhost:6333"

@@ -204,16 +204,16 @@ class EngineAnalysisService:
         """
         db = SessionLocal()
         try:
+            # Fetch all existing analyses for this game in one query
+            existing_analyses = (
+                db.query(EngineAnalysis)
+                .filter(EngineAnalysis.game_id == game_id)
+                .all()
+            )
+            existing_map = {ea.ply: ea for ea in existing_analyses}
+
             for analysis in analyses:
-                # Check if already exists
-                existing = (
-                    db.query(EngineAnalysis)
-                    .filter(
-                        EngineAnalysis.game_id == game_id,
-                        EngineAnalysis.ply == analysis["ply"],
-                    )
-                    .first()
-                )
+                existing = existing_map.get(analysis["ply"])
 
                 if existing:
                     # Update existing record
