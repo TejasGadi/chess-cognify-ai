@@ -72,11 +72,13 @@ from app.api.games import router as games_router
 from app.api.chat import router as chat_router
 from app.api.books import books_router
 from app.api.status import status_router
+from app.api.evaluate import router as evaluate_router
 
 app.include_router(games_router)
 app.include_router(chat_router)
 app.include_router(books_router)
 app.include_router(status_router)
+app.include_router(evaluate_router)
 
 
 @app.on_event("shutdown")

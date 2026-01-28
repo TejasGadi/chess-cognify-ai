@@ -15,27 +15,41 @@ class GameCreate(BaseModel):
     )
 
 
+class GameUpdate(BaseModel):
+    """Schema for updating a game."""
+
+    metadata: Optional[Dict[str, Any]] = Field(
+        None, description="Updated game metadata"
+    )
+
+
 class GameResponse(BaseModel):
     """Schema for game response."""
 
     game_id: str
     pgn: str
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = Field(None, alias="game_metadata")
+    status: str = "pending"
+    error_message: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
-    
+        populate_by_name = True
+
     @model_validator(mode='before')
     @classmethod
     def extract_metadata(cls, data):
-        """Extract metadata from game_metadata field."""
+        """Ensure status is never None and handle attribute mapping."""
         if hasattr(data, 'game_metadata'):
-            # Convert SQLAlchemy model to dict
+            # If it's a model object, we need to handle the mapping manually sometimes
+            # or Ensure status is not None
             return {
                 'game_id': data.game_id,
                 'pgn': data.pgn,
-                'metadata': data.game_metadata,
+                'game_metadata': data.game_metadata,
+                'status': getattr(data, 'status', "pending") or "pending",
+                'error_message': getattr(data, 'error_message', None),
                 'created_at': data.created_at,
             }
         return data

@@ -15,6 +15,8 @@ class Game(Base):
     game_id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     pgn = Column(Text, nullable=False)
     game_metadata = Column("metadata", JSON, nullable=True)  # time_control, player_color, etc.
+    status = Column(String, default="pending")  # pending, analyzing, completed, failed
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

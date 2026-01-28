@@ -1048,8 +1048,13 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
             concurrency_limit = settings.explanation_concurrency
             semaphore = asyncio.Semaphore(concurrency_limit)
             
+            import random
+            
             async def explain_with_semaphore(ply: int) -> tuple[int, Optional[str]]:
                 """Generate explanation with semaphore to limit concurrency."""
+                # Add jitter to prevent thundering herd
+                await asyncio.sleep(random.uniform(0.1, 1.0))
+
                 async with semaphore:
                     try:
                         explanation = await self.explain_move(

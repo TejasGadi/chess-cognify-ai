@@ -104,7 +104,7 @@ class StockfishService:
             # .white() returns a Cp object, which has .score() to get the integer value
             if score.is_mate():
                 # Mate score: convert to large centipawn value
-                mate_score = score.mate()
+                mate_score = score.white().mate()
                 centipawns = 10000 if mate_score > 0 else -10000
                 score_str = f"M{mate_score}" if mate_score else "M0"
             else:
@@ -267,7 +267,7 @@ class StockfishService:
                     
                     # Get evaluation
                     if score.is_mate():
-                        mate_score = score.mate()
+                        mate_score = score.white().mate()
                         centipawns = 10000 if mate_score > 0 else -10000
                         eval_str = f"M{mate_score}" if mate_score else "M0"
                     else:
@@ -296,7 +296,7 @@ class StockfishService:
                     
                     if score:
                         if score.is_mate():
-                            mate_score = score.mate()
+                            mate_score = score.white().mate()
                             centipawns = 10000 if mate_score > 0 else -10000
                             eval_str = f"M{mate_score}" if mate_score else "M0"
                         else:
