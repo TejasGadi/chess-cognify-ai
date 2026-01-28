@@ -84,12 +84,19 @@ async def run_game_analysis(game_id: str, pgn: str, metadata: dict = None):
                 db.commit()
             return
 
-        # Success - update status to completed
+        # Update game status based on review_output
         game = db.query(Game).filter(Game.game_id == game_id).first()
         if game:
-            game.status = "completed"
+            if review_output.status == "error":
+                game.status = "failed"
+                game.error_message = review_output.error
+                logger.error(f"Analysis failed for game {game_id}: {review_output.error}")
+            else:
+                game.status = "completed"
+                game.error_message = None
+                logger.info(f"Analysis completed successfully for game {game_id}")
+                
             db.commit()
-            logger.info(f"Analysis completed for game {game_id}")
 
     except Exception as e:
         logger.error(f"Unexpected error in background analysis for game {game_id}: {e}")
@@ -286,14 +293,7 @@ def get_game_review(game_id: str, db: Session = Depends(get_db)):
         game_id=game_id,
         game=GameResponse.model_validate(game),
         moves=moves_list,
-        summary={
-            "accuracy": summary.accuracy if summary else None,
-            "estimated_rating": summary.estimated_rating if summary else None,
-            "rating_confidence": summary.rating_confidence if summary else None,
-            "weaknesses": summary.weaknesses if summary else [],
-        }
-        if summary
-        else None,
+        summary=summary,
     )
 
 

@@ -5,10 +5,11 @@ import Chessboard from '@/components/Chessboard';
 import MoveList from '@/components/MoveList';
 import GameChat from '@/components/GameChat';
 import EvalBar from '@/components/EvalBar';
+import GameDetailedStats from '@/components/GameDetailedStats';
 import { parseGame, getDests } from '@/lib/chessLogic';
 import { evaluatePosition } from '@/lib/api';
 import * as Tabs from '@radix-ui/react-tabs';
-import { Info, MessageSquare, Activity, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Info, MessageSquare, Activity, CheckCircle2, AlertCircle, Loader2, Trophy, Target, AlertTriangle } from 'lucide-react';
 
 const GameView = () => {
     const { gameId } = useParams();
@@ -231,7 +232,7 @@ const GameView = () => {
             </div>
 
             {/* Right Sidebar - Analysis & Chat */}
-            <div className="w-full md:w-96 border-l bg-card flex flex-col h-[50vh] md:h-auto">
+            <div className="w-full md:w-96 border-l bg-card flex flex-col h-[60vh] md:h-full">
                 <div className="p-4 border-b">
                     <h2 className="font-bold truncate" title={currentGame.metadata?.title}>
                         {currentGame.metadata?.title || "Game Analysis"}
@@ -256,9 +257,9 @@ const GameView = () => {
                         </Tabs.Trigger>
                     </Tabs.List>
 
-                    <Tabs.Content value="moves" className="flex-1 flex flex-col overflow-hidden">
+                    <Tabs.Content value="moves" className="flex-1 overflow-auto">
                         {/* Analysis Box */}
-                        <div className="p-4 bg-muted/30 border-b min-h-[100px] flex flex-col justify-center text-center relative group">
+                        <div className="p-4 bg-muted/30 border-b flex flex-col justify-center text-center relative group">
                             {/* Debug info hidden unless hovering */}
                             <div className="hidden group-hover:block absolute top-1 right-1 text-[10px] text-muted-foreground bg-background p-1 border rounded opacity-50 hover:opacity-100">
                                 Ply: {currentPly} | Data: {analysisData?.moves?.length || 0}
@@ -304,9 +305,11 @@ const GameView = () => {
                                         <span className="text-sm font-bold">{currentMoveAnalysis.move_san}</span>
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
                                             ${currentMoveAnalysis.label === 'Best' ? 'bg-green-500/10 text-green-500' :
-                                                currentMoveAnalysis.label === 'Blunder' ? 'bg-red-500/10 text-red-500' :
-                                                    currentMoveAnalysis.label === 'Mistake' ? 'bg-orange-500/10 text-orange-500' :
-                                                        'bg-blue-500/10 text-blue-500'}
+                                                currentMoveAnalysis.label === 'Good' ? 'bg-emerald-500/10 text-emerald-500' :
+                                                    currentMoveAnalysis.label === 'Inaccuracy' ? 'bg-yellow-500/10 text-yellow-500' :
+                                                        currentMoveAnalysis.label === 'Mistake' ? 'bg-orange-500/10 text-orange-500' :
+                                                            currentMoveAnalysis.label === 'Blunder' ? 'bg-red-500/10 text-red-500' :
+                                                                'bg-blue-500/10 text-blue-500'}
                                         `}>
                                             {currentMoveAnalysis.label}
                                         </span>
@@ -344,7 +347,7 @@ const GameView = () => {
                             )}
                         </div>
 
-                        <div className="flex-1 overflow-auto">
+                        <div className="p-4">
                             <MoveList
                                 moves={gameLogic.moves}
                                 currentPly={currentPly}
@@ -359,28 +362,50 @@ const GameView = () => {
 
                     <Tabs.Content value="info" className="flex-1 p-4 overflow-auto">
                         <div className="space-y-4">
-                            <div className="rounded-lg border p-4 bg-card">
-                                <h3 className="font-semibold mb-2">Game Summary</h3>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
-                                        <span className="text-muted-foreground block">Accuracy</span>
-                                        <span className="text-lg font-bold">{analysisData?.summary?.accuracy || "-"}%</span>
+                            {analysisData?.summary?.details ? (
+                                <GameDetailedStats
+                                    summary={analysisData.summary}
+                                    metadata={currentGame.metadata}
+                                />
+                            ) : (
+                                <div className="bg-card rounded-xl border p-6 text-center space-y-4 shadow-sm">
+                                    <div className="flex justify-center">
+                                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                                            <Trophy className="w-8 h-8 text-primary" />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <span className="text-muted-foreground block">Est. Rating</span>
-                                        <span className="text-lg font-bold">{analysisData?.summary?.estimated_rating || "-"}</span>
+                                    <h3 className="text-lg font-bold">Game Summary</h3>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 bg-muted/50 rounded-lg">
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Accuracy</p>
+                                            <p className="text-2xl font-black">{analysisData?.summary?.accuracy || '-'}%</p>
+                                        </div>
+                                        <div className="p-4 bg-muted/50 rounded-lg">
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Est. Rating</p>
+                                            <p className="text-2xl font-black">{analysisData?.summary?.estimated_rating || '-'}</p>
+                                        </div>
                                     </div>
+                                    <p className="text-sm text-muted-foreground italic">
+                                        More detailed stats will appear here once the new analysis system processes this game.
+                                    </p>
                                 </div>
-                            </div>
+                            )}
 
-                            {analysisData?.summary?.weaknesses && (
-                                <div className="rounded-lg border p-4 bg-card">
-                                    <h3 className="font-semibold mb-2">Weaknesses</h3>
-                                    <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                            {analysisData?.summary?.weaknesses && analysisData.summary.weaknesses.length > 0 && (
+                                <div className="bg-card rounded-xl border overflow-hidden shadow-sm">
+                                    <div className="bg-muted/50 px-4 py-2 border-b flex justify-between items-center">
+                                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Key Areas for Improvement</span>
+                                    </div>
+                                    <div className="p-4 space-y-3">
                                         {analysisData.summary.weaknesses.map((w, i) => (
-                                            <li key={i}>{w}</li>
+                                            <div key={i} className="flex gap-3 p-3 bg-muted/30 rounded-lg border border-muted/50 items-start group hover:bg-muted/50 transition-colors">
+                                                <div className="p-1.5 bg-background rounded border border-muted mt-0.5 shadow-sm group-hover:scale-110 transition-transform">
+                                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                                </div>
+                                                <p className="text-sm font-medium leading-relaxed">{w}</p>
+                                            </div>
                                         ))}
-                                    </ul>
+                                    </div>
                                 </div>
                             )}
                         </div>

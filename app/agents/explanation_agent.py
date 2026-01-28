@@ -109,11 +109,14 @@ Comment format:
 - Explain the SPECIFIC tactical or positional reason (e.g., "the queen on b4 becomes trapped after White's Nb5", "this weakens the f7 square allowing a knight fork", "this loses the bishop to a discovered attack")
 - If it's a mistake/blunder, explain the exact tactical sequence or positional weakness in the current position
 - Compare to the best move and explain what specific opportunity was missed
-- Always mention the best move explicitly
+- ALWAYS mention the best move explicitly
 - When referring to pieces, use "White's queen on d3" or "Black's queen on b4" to be clear about location
 - Be SPECIFIC: Instead of "allows White to gain advantage", say "the queen on b4 becomes trapped after White's Nb5, losing material" or "this weakens the kingside allowing a mating attack"
 
-Example for a blunder: "Black played Qxb2. This is a blunder because the queen on b2 becomes trapped after White's Rc1, which attacks the queen and forces it to retreat, losing material. Best move is Qb6, which maintains the queen's mobility and keeps it safe from immediate threats."
+**CRITICAL: ALLOWED LABELS**
+You MUST ONLY use these labels for move quality: Best, Good, Inaccuracy, Mistake, Blunder.
+NEVER use labels like "Brilliant", "Great", "Excellent", "Book", or "Miss". These are obsolete.
+If a move is very good, call it "Best" or "Good".
 
 Always analyze the position deeply and explain specific tactical or positional reasons, not just evaluation numbers.""",
                 ),
@@ -573,7 +576,7 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
             # Interpret from active player's perspective
             if active_player == "White":
                 if eval_pawns > 2.0:
-                    return f"White has a winning advantage (+{eval_pawns:.2f}). This is excellent for White."
+                    return f"White has a winning advantage (+{eval_pawns:.2f}). This is a very strong position for White."
                 elif eval_pawns > 0.5:
                     return f"White has a significant advantage (+{eval_pawns:.2f}). This is good for White."
                 elif eval_pawns > -0.5:
@@ -584,7 +587,7 @@ Example for a blunder: "Black played Qxb2. This is a blunder because the queen o
                     return f"Black has a winning advantage ({eval_pawns:.2f}). This is terrible for White."
             else:  # Black
                 if eval_pawns < -2.0:
-                    return f"Black has a winning advantage ({eval_pawns:.2f}). This is excellent for Black."
+                    return f"Black has a winning advantage ({eval_pawns:.2f}). This is a very strong position for Black."
                 elif eval_pawns < -0.5:
                     return f"Black has a significant advantage ({eval_pawns:.2f}). This is good for Black."
                 elif eval_pawns < 0.5:

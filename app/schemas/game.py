@@ -116,6 +116,7 @@ class GameSummaryResponse(BaseModel):
     estimated_rating: Optional[int] = None
     rating_confidence: Optional[str] = None
     weaknesses: Optional[List[str]] = None
+    details: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
