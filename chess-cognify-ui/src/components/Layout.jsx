@@ -343,6 +343,9 @@ const Sidebar = () => {
     );
 };
 
+import Navbar from './Navbar';
+import Footer from './Footer';
+
 const Layout = () => {
     const location = useLocation();
     const isHomePage = location.pathname === '/';
@@ -351,9 +354,20 @@ const Layout = () => {
         <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans antialiased">
             {/* Only show sidebar if not on homepage */}
             {!isHomePage && <Sidebar />}
-            <main className="flex-1 overflow-auto">
-                <Outlet />
-            </main>
+
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+                {/* Show Navbar only on homepage */}
+                {isHomePage && <Navbar />}
+
+                <main className={cn(
+                    "flex-1 overflow-auto overflow-x-hidden",
+                    isHomePage ? "" : ""
+                )}>
+                    <Outlet />
+                    {/* Show Footer only on homepage */}
+                    {isHomePage && <Footer />}
+                </main>
+            </div>
         </div>
     );
 };

@@ -24,7 +24,7 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
-    chess_data: Optional[Dict[str, Any]] = None
+    chess_data: Optional[List[Dict[str, Any]]] = None
     sources: Optional[List[Dict[str, Any]]] = None
     status: str
 

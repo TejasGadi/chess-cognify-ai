@@ -56,7 +56,7 @@ const Chessboard = ({ fen, orientation = 'white', onMove, lastMove, check, ...pr
     return (
         <div
             ref={ref}
-            style={{ width: '100%', height: '100%', minHeight: '400px', aspectRatio: '1' }}
+            style={{ width: '100%', aspectRatio: '1' }}
             className="cg-wrap"
         />
     );

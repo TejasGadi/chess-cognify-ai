@@ -167,27 +167,74 @@ const BookChat = () => {
                                         {msg.role === 'assistant' && <SourceSection sources={msg.sources} />}
                                     </div>
 
-                                    {/* Render Chess Board if chess_data is present */}
-                                    {msg.chess_data && (msg.chess_data.fen || msg.chess_data.pgn) && (
-                                        <Card className="w-full max-w-sm mt-2 p-3 bg-card border shadow-sm">
-                                            <div className="flex items-center gap-2 mb-2 pb-2 border-b">
-                                                <Gamepad2 className="w-4 h-4 text-primary" />
-                                                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                                    {msg.chess_data.description || "Position Reference"}
-                                                </span>
-                                            </div>
-                                            <div className="aspect-square rounded overflow-hidden bg-muted/20 border">
-                                                <Chessboard
-                                                    fen={msg.chess_data.fen}
-                                                    viewOnly={true}
-                                                />
-                                            </div>
-                                            {(msg.chess_data.moves || msg.chess_data.pgn) && (
-                                                <div className="mt-2 text-xs font-mono text-muted-foreground p-2 bg-muted rounded">
-                                                    {msg.chess_data.pgn || (msg.chess_data.moves ? msg.chess_data.moves.join(' ') : '')}
-                                                </div>
-                                            )}
-                                        </Card>
+                                    {/* Render Chess Boards if chess_data is present */}
+                                    {msg.chess_data && Array.isArray(msg.chess_data) && msg.chess_data.length > 0 && (
+                                        <div className="flex flex-col gap-4 w-full mt-4">
+                                            {msg.chess_data.map((chess, idx) => (
+                                                <Card key={idx} className="w-full max-w-2xl bg-card border shadow-md overflow-hidden">
+                                                    <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+                                                        <div className="flex items-center gap-2">
+                                                            <Gamepad2 className="w-5 h-5 text-primary" />
+                                                            <h4 className="text-sm font-black uppercase tracking-widest text-foreground">
+                                                                {chess.description || `Position ${idx + 1}`}
+                                                            </h4>
+                                                        </div>
+                                                        {chess.page && (
+                                                            <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                                                                Page {chess.page}
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-6">
+                                                        <div className="md:col-span-7 bg-muted/20 rounded-xl overflow-hidden border p-1 shadow-inner relative group min-h-[300px] flex items-center justify-center">
+                                                            {chess.image_url ? (
+                                                                <img
+                                                                    src={chess.image_url}
+                                                                    alt={chess.description || "Chess Diagram"}
+                                                                    className="max-w-full max-h-full object-contain rounded-lg"
+                                                                    onError={(e) => {
+                                                                        e.target.style.display = 'none';
+                                                                        e.target.nextSibling.style.display = 'block';
+                                                                    }}
+                                                                />
+                                                            ) : null}
+                                                            <div className={cn("w-full aspect-square", chess.image_url ? "hidden" : "block")}>
+                                                                <Chessboard
+                                                                    fen={chess.fen}
+                                                                    viewOnly={true}
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="md:col-span-5 flex flex-col gap-4">
+                                                            {(chess.moves || chess.pgn) && (
+                                                                <div className="space-y-1.5">
+                                                                    <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Sequence / Notation</p>
+                                                                    <div className="text-xs font-mono text-foreground p-3 bg-muted rounded-lg border leading-relaxed break-all">
+                                                                        {chess.pgn || (chess.moves ? chess.moves.join(' ') : '')}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {chess.piece_positions && (
+                                                                <div className="space-y-1.5 flex-1">
+                                                                    <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Piece Breakdown</p>
+                                                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 h-[140px] overflow-y-auto pr-2 custom-scrollbar border rounded-lg p-2 bg-muted/20">
+                                                                        {Object.entries(chess.piece_positions).map(([sq, pc]) => (
+                                                                            <div key={sq} className="flex justify-between items-center text-[10px] py-1 border-b border-border/30 last:border-0">
+                                                                                <span className="font-black text-primary bg-primary/5 px-1 rounded">{sq.toUpperCase()}</span>
+                                                                                <span className="truncate text-muted-foreground font-medium">{pc}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </Card>
+                                            ))}
+                                        </div>
                                     )}
                                 </div>
                             </div>

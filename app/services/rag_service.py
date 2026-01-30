@@ -59,12 +59,16 @@ class RagService:
             
             Instructions:
             1. Answer the question comprehensively based on the context.
-            2. IF the context mentions specific chess moves, games, or positions that explain the concept:
-               - You MUST output the specific chess data in a separate JSON block at the end of your response.
-               - Used Standard Algebraic Notation (SAN) for moves.
+            2. For each context block, check if an 'IMAGE_URL' is provided. 
+            3. IF the context mentions specific chess moves, games, or positions that explain the concept:
+               - You can output MULTIPLE chess data blocks if there are multiple relevant positions or variations to show.
+               - Wrap EACH block in CHESS_DATA_JSON_START and CHESS_DATA_JSON_END.
+               - Use Standard Algebraic Notation (SAN) for moves.
                - If a FEN is explicitly provided in context, use it.
                - If a PGN or move sequence is provided, include it.
-            3. If no specific chess position is relevant, do not include the JSON block.
+               - If the context for a specific position contains an 'IMAGE_URL' field, you MUST include it in the JSON as "image_url".
+               - ALWAYS provide a descriptive 'description' for each board so the user knows what it represents.
+            4. If no specific chess position is relevant, do not include any JSON blocks.
             
             Format your response as follows:
             [Your detailed text answer here...]
@@ -74,14 +78,15 @@ class RagService:
                 "fen": "...", (optional, if a specific position is discussed)
                 "pgn": "...", (optional, if a game or sequence is discussed)
                 "moves": ["e4", "e5", ...], (optional, list of key moves mentioned)
-                "description": "..." (brief description of what this position represents)
+                "image_url": "...", (REQUIRED if available in context)
+                "description": "..." (Required, brief description of what this position represents)
             }}
             CHESS_DATA_JSON_END
             """
         )
         
         # Define Chain
-        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 5})
+        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
         self.chain = (
             {"context": self.retriever, "question": RunnablePassthrough()}
             | self.prompt
@@ -104,7 +109,7 @@ class RagService:
             logger.info(f"RAG Query: {user_query} (book_id: {book_id})")
             
             # Configure retriever with optional book_id filter
-            search_kwargs = {"k": 5}
+            search_kwargs = {"k": 10}
             if book_id:
                 search_kwargs["filter"] = models.Filter(
                     must=[
@@ -120,8 +125,15 @@ class RagService:
             # 1. Retrieve documents manually to return them as sources
             docs = await retriever.ainvoke(user_query)
             
-            # 2. Format context for the prompt
-            context_text = "\n\n".join([doc.page_content for doc in docs])
+            # 2. Format context for the prompt - INCLUDE METADATA so LLM knows about images!
+            context_text = ""
+            for i, doc in enumerate(docs):
+                context_text += f"---\n[SOURCE {i+1}]\n"
+                if "page" in doc.metadata:
+                    context_text += f"PAGE: {doc.metadata['page']}\n"
+                if "image_url" in doc.metadata:
+                    context_text += f"IMAGE_URL: {doc.metadata['image_url']}\n"
+                context_text += f"CONTENT:\n{doc.page_content}\n---\n\n"
             
             # 3. Use a simpler chain with the pre-retrieved context
             chain = (
@@ -160,22 +172,27 @@ class RagService:
                 "error": str(e)
             }
 
-    def _parse_response(self, text: str) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Extract JSON block from response text."""
-        json_match = re.search(r"CHESS_DATA_JSON_START(.*?)CHESS_DATA_JSON_END", text, re.DOTALL)
+    def _parse_response(self, text: str) -> tuple[str, Optional[List[Dict[str, Any]]]]:
+        """Extract all JSON blocks from response text."""
+        matches = list(re.finditer(r"CHESS_DATA_JSON_START(.*?)CHESS_DATA_JSON_END", text, re.DOTALL))
         
-        if json_match:
-            json_str = json_match.group(1).strip()
+        if not matches:
+            return text.strip(), None
+            
+        chess_data_list = []
+        clean_answer = text
+        
+        for match in matches:
+            json_str = match.group(1).strip()
             # Remove the block from the text answer
-            clean_answer = text.replace(json_match.group(0), "").strip()
+            clean_answer = clean_answer.replace(match.group(0), "")
             try:
-                chess_data = json.loads(json_str)
-                return clean_answer, chess_data
+                data = json.loads(json_str)
+                chess_data_list.append(data)
             except json.JSONDecodeError:
-                logger.warning(f"Failed to parse extracted JSON: {json_str}")
-                return text, None # Return full text if parse fails
-        
-        return text.strip(), None
+                logger.warning(f"Failed to parse extracted JSON block: {json_str}")
+                
+        return clean_answer.strip(), chess_data_list if chess_data_list else None
 
 # Global instance
 rag_service = RagService()

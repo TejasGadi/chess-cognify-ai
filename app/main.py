@@ -67,6 +67,13 @@ async def health_check():
     return {"status": "healthy"}
 
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Ensure image directory exists
+IMAGE_DIR = "uploads/book_images"
+os.makedirs(IMAGE_DIR, exist_ok=True)
+
 # Include routers
 from app.api.games import router as games_router
 from app.api.chat import router as chat_router
@@ -79,6 +86,9 @@ app.include_router(books_router)
 app.include_router(chat_router)
 app.include_router(status_router)
 app.include_router(evaluate_router)
+
+# Mount static files for book images
+app.mount("/api/book_images", StaticFiles(directory=IMAGE_DIR), name="book_images")
 
 
 @app.on_event("shutdown")

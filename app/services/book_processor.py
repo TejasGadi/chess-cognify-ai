@@ -1,7 +1,9 @@
 import os
 from typing import List, Dict, Any
 from langchain_core.documents import Document
-from langchain_docling import DoclingLoader
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.base_models import InputFormat
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import QdrantVectorStore
 from langchain_openai import OpenAIEmbeddings
@@ -11,6 +13,8 @@ from app.config import settings
 from sqlalchemy.orm import Session
 from app.models.book import Book
 from app.utils.logger import get_logger
+from PIL import Image
+import hashlib
 
 logger = get_logger(__name__)
 
@@ -104,54 +108,118 @@ class BookProcessor:
             book.status = "processing"
             db.commit()
             
-            # 1. Load and parse PDF using Docling
-            # Docling handles tables and layout better than pypdf
-            loader = DoclingLoader(file_path=file_path)
-            docs = loader.load()
+            # 1. Setup Docling Converter with image extraction
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.generate_picture_images = True
             
-            logger.info(f"Docling parsed {len(docs)} document structures")
-            
-            # 2. Split into chunks
-            # Even though Docling gives structured output, we ensure manageable chunk sizes
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
-                add_start_index=True
+            converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
             )
             
-            splits = text_splitter.split_documents(docs)
-            logger.info(f"Created {len(splits)} text chunks")
+            # 2. Convert PDF
+            result = converter.convert(file_path)
+            doc = result.document
             
-            # 3. Add metadata
-            for split in splits:
-                split.metadata["source"] = filename
-                split.metadata["file_path"] = file_path
-                split.metadata["book_id"] = book_id  # Add book_id for filtering
-                # Docling might add other metadata, preserve it
+            # 3. Process items and extract images
+            processed_docs = []
+            current_image_url = None
             
-            # 4. Store in Qdrant
-            # QdrantVectorStore handles the embedding generation using the provided model
+            # Create book-specific image directory
+            book_image_dir = os.path.join("uploads/book_images", book_id)
+            os.makedirs(book_image_dir, exist_ok=True)
+            
+            # Buffering logic for larger chunks
+            current_text_block = []
+            current_metadata = {}
+            
+            def flush_block():
+                if current_text_block:
+                    full_text = "\n\n".join(current_text_block)
+                    if len(full_text.strip()) > 50:
+                        processed_docs.append(Document(page_content=full_text, metadata=current_metadata.copy()))
+                    current_text_block.clear()
+
+            for item, level in doc.iterate_items():
+                # Check for image
+                if hasattr(item, 'image') and item.image:
+                    # Flush previous block before starting new image context
+                    flush_block()
+                    
+                    img = item.get_image(doc)
+                    if img:
+                        img_filename = f"img_{hashlib.md5(item.self_ref.encode()).hexdigest()[:10]}.jpg"
+                        img_path = os.path.join(book_image_dir, img_filename)
+                        img.save(img_path, "JPEG")
+                        current_image_url = f"/api/book_images/{book_id}/{img_filename}"
+                        logger.info(f"Extracted image to {current_image_url}")
+                
+                # Extract text
+                text_content = ""
+                if hasattr(item, 'text'):
+                    text_content = item.text
+                elif hasattr(item, 'label'):
+                    text_content = item.label
+                
+                if text_content and len(text_content.strip()) > 5:
+                    page_num = 1
+                    if item.prov and len(item.prov) > 0:
+                        page_num = item.prov[0].page_no
+                    
+                    # If page changes significantly or image changed, flush
+                    if current_metadata.get("page") and abs(page_num - current_metadata["page"]) > 2:
+                        flush_block()
+                    
+                    # Update metadata for the current block if it's empty
+                    if not current_text_block:
+                        current_metadata = {
+                            "source": filename,
+                            "book_id": book_id,
+                            "page": page_num
+                        }
+                        if current_image_url:
+                            current_metadata["image_url"] = current_image_url
+                    
+                    current_text_block.append(text_content)
+                    
+                    # If block gets too large, flush it to allow splitting
+                    if sum(len(t) for t in current_text_block) > 3000:
+                        flush_block()
+            
+            # Final flush
+            flush_block()
+            
+            logger.info(f"Extracted {len(processed_docs)} large metadata blocks")
+            
+            # 4. Split into manageable chunks (User requested at least 1024)
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1500,
+                chunk_overlap=300
+            )
+            
+            final_splits = text_splitter.split_documents(processed_docs)
+            logger.info(f"Final split produced {len(final_splits)} chunks")
+            
+            # 5. Store in Qdrant
             vector_store = QdrantVectorStore(
                 client=self.qdrant_client,
                 collection_name=self.collection_name,
                 embedding=self.embedding_model,
             )
             
-            # Upsert documents
-            # Note: This might take time for large books
-            vector_store.add_documents(documents=splits)
+            vector_store.add_documents(documents=final_splits)
             
-            
-            logger.info(f"Successfully stored {len(splits)} chunks in Qdrant")
+            logger.info(f"Successfully stored {len(final_splits)} chunks in Qdrant")
             
             # Update status to completed
             book.status = "completed"
-            book.total_chunks = len(splits)
+            book.total_chunks = len(final_splits)
             db.commit()
             
             return {
                 "status": "success",
-                "chunks": len(splits),
+                "chunks": len(final_splits),
                 "filename": filename
             }
             
