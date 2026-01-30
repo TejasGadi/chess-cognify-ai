@@ -67,3 +67,6 @@ temp/
 
 # OS
 Thumbs.db
+
+uploads/
+uploads/*

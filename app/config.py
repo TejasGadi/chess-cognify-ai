@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o"  # Standard model (vision-capable)
     openai_vision_model: str = "gpt-4o"  # Vision-capable model for explanations
+    openai_embedding_model: str = "text-embedding-3-small" # OpenAI Embedding Model
     
     use_vision_for_explanations: bool = True  # Use vision model for move explanations
 

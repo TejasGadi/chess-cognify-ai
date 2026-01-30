@@ -18,6 +18,8 @@ class Book(Base):
     author = Column(String, nullable=True)
     filename = Column(String, nullable=False)
     file_path = Column(String, nullable=True)  # Optional: store file path if needed
+    status = Column(String, nullable=False, default='pending')  # 'pending', 'processing', 'completed', 'failed'
+    error_message = Column(Text, nullable=True)  # Error details if status is 'failed'
     total_pages = Column(Integer, nullable=True)
     total_chunks = Column(Integer, nullable=True)  # Number of text chunks created
     book_metadata = Column("metadata", JSON, nullable=True)  # Additional metadata (ISBN, year, etc.)
