@@ -1,6 +1,9 @@
 from typing import Dict, Any, List, Optional
 import json
 import re
+import os
+import base64
+import httpx
 
 from langchain_qdrant import QdrantVectorStore
 from langchain_openai import OpenAIEmbeddings
@@ -63,11 +66,10 @@ class RagService:
             3. IF the context mentions specific chess moves, games, or positions that explain the concept:
                - You can output MULTIPLE chess data blocks if there are multiple relevant positions or variations to show.
                - Wrap EACH block in CHESS_DATA_JSON_START and CHESS_DATA_JSON_END.
+               - If the context for a specific position contains an 'IMAGE_URL' field, you MUST prioritize including it in the JSON as "image_url".
+               - ALWAYS provide a descriptive, professional title-case 'description' for each board (e.g., "The London System Setup").
                - Use Standard Algebraic Notation (SAN) for moves.
                - If a FEN is explicitly provided in context, use it.
-               - If a PGN or move sequence is provided, include it.
-               - If the context for a specific position contains an 'IMAGE_URL' field, you MUST include it in the JSON as "image_url".
-               - ALWAYS provide a descriptive 'description' for each board so the user knows what it represents.
             4. If no specific chess position is relevant, do not include any JSON blocks.
             
             Format your response as follows:
@@ -96,14 +98,7 @@ class RagService:
 
     async def query(self, user_query: str, book_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Process a user query using RAG.
-        
-        Args:
-            user_query: The user's question
-            book_id: Optional book ID to filter results to a specific book
-            
-        Returns:
-            Dict containing the answer and optional chess data
+        Process a user query using RAG with VLM-enhanced visual analysis.
         """
         try:
             logger.info(f"RAG Query: {user_query} (book_id: {book_id})")
@@ -122,33 +117,56 @@ class RagService:
             
             retriever = self.vector_store.as_retriever(search_kwargs=search_kwargs)
             
-            # 1. Retrieve documents manually to return them as sources
+            # 1. Retrieve documents manually
             docs = await retriever.ainvoke(user_query)
             
-            # 2. Format context for the prompt - INCLUDE METADATA so LLM knows about images!
-            context_text = ""
+            # 2. Extract unique image URLs from ALL retrieved chunks
+            unique_image_urls = []
+            for doc in docs:
+                urls = doc.metadata.get("image_urls") or []
+                if doc.metadata.get("image_url"): # Legacy support
+                    urls.append(doc.metadata["image_url"])
+                
+                for url in urls:
+                    if url not in unique_image_urls:
+                        unique_image_urls.append(url)
+            
+            # 3. Get Visual Summaries from VLM for ALL unique images
+            vlm_summaries_text = ""
+            vlm_data_map = {}
+            if unique_image_urls:
+                vlm_data_map = await self._get_visual_summaries(unique_image_urls)
+                if vlm_data_map:
+                    vlm_summaries_text = "\n\nVISUAL DATA FROM BOOK DIAGRAMS:\n"
+                    for i, (url, summary) in enumerate(vlm_data_map.items()):
+                        vlm_summaries_text += f"[DIAGRAM {i+1}] (IMAGE_URL: {url})\nSUMMARY: {summary}\n\n"
+            
+            # 4. Format context for the prompt
+            context_text = vlm_summaries_text + "\n\nTEXTUAL CONTENT FROM BOOK:\n"
             for i, doc in enumerate(docs):
-                context_text += f"---\n[SOURCE {i+1}]\n"
-                if "page" in doc.metadata:
-                    context_text += f"PAGE: {doc.metadata['page']}\n"
-                if "image_url" in doc.metadata:
-                    context_text += f"IMAGE_URL: {doc.metadata['image_url']}\n"
+                page = doc.metadata.get('page', 'Unknown')
+                img_urls = doc.metadata.get('image_urls', [])
+                if doc.metadata.get('image_url'):
+                    img_urls.append(doc.metadata['image_url'])
+                
+                context_text += f"---\n[SOURCE {i+1}] (Page {page})\n"
+                if img_urls:
+                    context_text += f"ASSOCIATED_IMAGE_URLS: {', '.join(img_urls)}\n"
                 context_text += f"CONTENT:\n{doc.page_content}\n---\n\n"
             
-            # 3. Use a simpler chain with the pre-retrieved context
+            # 5. Run the chain
             chain = (
                 self.prompt
                 | self.llm
                 | StrOutputParser()
             )
             
-            # Run the chain
             response_text = await chain.ainvoke({"context": context_text, "question": user_query})
             
-            # Parse response to separate text and JSON
+            # Parse response
             answer, chess_data = self._parse_response(response_text)
             
-            # Prepare sources
+            # Prepare detailed sources
             sources = [
                 {
                     "content": doc.page_content,
@@ -161,6 +179,8 @@ class RagService:
                 "answer": answer,
                 "chess_data": chess_data,
                 "sources": sources,
+                "images": unique_image_urls,
+                "vlm_summaries": vlm_data_map, # Return map of URL -> Summary
                 "status": "success"
             }
             
@@ -171,6 +191,72 @@ class RagService:
                 "status": "error",
                 "error": str(e)
             }
+
+    async def _get_visual_summaries(self, image_urls: List[str]) -> Dict[str, str]:
+        """Use VLM (gpt-4o-mini) to extract detailed information from book images in parallel."""
+        import asyncio
+        
+        # Create tasks for all images to run in parallel
+        tasks = [self._analyze_single_image(url) for url in image_urls]
+        results = await asyncio.gather(*tasks)
+        
+        # Merge results into a single dictionary (filtering out None)
+        summaries = {}
+        for res in results:
+            if res:
+                summaries.update(res)
+        return summaries
+
+    async def _analyze_single_image(self, url: str) -> Optional[Dict[str, str]]:
+        """Helper to analyze a single image for parallel processing."""
+        try:
+            # Resolve local file path
+            filename = url.replace("/api/book_images/", "")
+            file_path = os.path.join("uploads/book_images", filename)
+            
+            if not os.path.exists(file_path):
+                return None
+            
+            with open(file_path, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # Call OpenAI Vision API (gpt-4o-mini)
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.openai_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "Describe this chess diagram from a book. Identify the position, key pieces, and any tactical patterns or arrows shown. Be concise but technical."},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 300
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    summary = data['choices'][0]['message']['content']
+                    return {url: summary}
+                else:
+                    logger.warning(f"VLM API failed for {url} with status {response.status_code}: {response.text}")
+        except Exception as e:
+            logger.error(f"Error in VLM analysis for {url}: {e}")
+            
+        return None
 
     def _parse_response(self, text: str) -> tuple[str, Optional[List[Dict[str, Any]]]]:
         """Extract all JSON blocks from response text."""

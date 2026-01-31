@@ -165,9 +165,50 @@ const BookChat = () => {
 
                                         {/* Sources Section for Assistant */}
                                         {msg.role === 'assistant' && <SourceSection sources={msg.sources} />}
+
+                                        {/* Image Gallery for Assistant - Unique images found in context */}
+                                        {msg.role === 'assistant' && msg.images && msg.images.length > 0 && (
+                                            <div className="mt-4 pt-4 border-t space-y-4">
+                                                <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 flex items-center gap-2">
+                                                    <BookOpen className="w-3 h-3" />
+                                                    Retrieved Book Diagrams & Vision Analysis
+                                                </p>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    {msg.images.map((imgUrl, idx) => (
+                                                        <div key={idx} className="flex flex-col gap-3 bg-muted/20 rounded-xl border p-3 group">
+                                                            <div className="aspect-square bg-white rounded-lg border overflow-hidden relative cursor-zoom-in">
+                                                                <img
+                                                                    src={imgUrl}
+                                                                    alt={`Diagram ${idx + 1}`}
+                                                                    className="w-full h-full object-contain transition-transform group-hover:scale-105"
+                                                                    onClick={() => window.open(imgUrl, '_blank')}
+                                                                />
+                                                                <div className="absolute top-2 right-2">
+                                                                    <div className="bg-black/50 backdrop-blur-sm text-white text-[8px] px-1.5 py-0.5 rounded font-bold">
+                                                                        Page {msg.sources?.find(s => s.metadata.image_urls?.includes(imgUrl) || s.metadata.image_url === imgUrl)?.metadata.page || '?'}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {msg.vlm_summaries && msg.vlm_summaries[imgUrl] && (
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                                                        <p className="text-[8px] font-black uppercase tracking-widest text-primary/70">Technical Summary (VLM)</p>
+                                                                    </div>
+                                                                    <p className="text-[11px] leading-relaxed text-muted-foreground font-medium italic">
+                                                                        "{msg.vlm_summaries[imgUrl]}"
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {/* Render Chess Boards if chess_data is present */}
+                                    {/* Render Chess Boards if chess_data is present (Specific positions discussed) */}
                                     {msg.chess_data && Array.isArray(msg.chess_data) && msg.chess_data.length > 0 && (
                                         <div className="flex flex-col gap-4 w-full mt-4">
                                             {msg.chess_data.map((chess, idx) => (
@@ -179,11 +220,6 @@ const BookChat = () => {
                                                                 {chess.description || `Position ${idx + 1}`}
                                                             </h4>
                                                         </div>
-                                                        {chess.page && (
-                                                            <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                                                                Page {chess.page}
-                                                            </span>
-                                                        )}
                                                     </div>
 
                                                     <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-6">
@@ -216,20 +252,6 @@ const BookChat = () => {
                                                                     </div>
                                                                 </div>
                                                             )}
-
-                                                            {chess.piece_positions && (
-                                                                <div className="space-y-1.5 flex-1">
-                                                                    <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Piece Breakdown</p>
-                                                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 h-[140px] overflow-y-auto pr-2 custom-scrollbar border rounded-lg p-2 bg-muted/20">
-                                                                        {Object.entries(chess.piece_positions).map(([sq, pc]) => (
-                                                                            <div key={sq} className="flex justify-between items-center text-[10px] py-1 border-b border-border/30 last:border-0">
-                                                                                <span className="font-black text-primary bg-primary/5 px-1 rounded">{sq.toUpperCase()}</span>
-                                                                                <span className="truncate text-muted-foreground font-medium">{pc}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
                                                         </div>
                                                     </div>
                                                 </Card>
@@ -246,9 +268,10 @@ const BookChat = () => {
                                     <Bot className="w-5 h-5" />
                                 </div>
                                 <div className="bg-white border rounded-xl p-4 flex items-center gap-2 shadow-sm">
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" />
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-delay:0.2s]" />
-                                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-delay:0.4s]" />
+                                    <span className="text-xs text-muted-foreground animate-pulse flex items-center gap-2">
+                                        <Activity className="w-3 h-3 animate-spin" />
+                                        Analyzing diagrams & context...
+                                    </span>
                                 </div>
                             </div>
                         )}

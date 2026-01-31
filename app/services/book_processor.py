@@ -124,7 +124,8 @@ class BookProcessor:
             
             # 3. Process items and extract images
             processed_docs = []
-            current_image_url = None
+            current_image_urls = []
+            image_page_map = {} # Track which page each image URL belongs to
             
             # Create book-specific image directory
             book_image_dir = os.path.join("uploads/book_images", book_id)
@@ -144,16 +145,36 @@ class BookProcessor:
             for item, level in doc.iterate_items():
                 # Check for image
                 if hasattr(item, 'image') and item.image:
-                    # Flush previous block before starting new image context
-                    flush_block()
+                    # Flush previous block before starting new image context ONLY if it's a new page
+                    # but actually we want images to be associated with following text.
+                    # flush_block()
                     
                     img = item.get_image(doc)
                     if img:
                         img_filename = f"img_{hashlib.md5(item.self_ref.encode()).hexdigest()[:10]}.jpg"
                         img_path = os.path.join(book_image_dir, img_filename)
                         img.save(img_path, "JPEG")
-                        current_image_url = f"/api/book_images/{book_id}/{img_filename}"
-                        logger.info(f"Extracted image to {current_image_url}")
+                        img_url = f"/api/book_images/{book_id}/{img_filename}"
+                        
+                        img_page = 1
+                        if item.prov and len(item.prov) > 0:
+                            img_page = item.prov[0].page_no
+                        
+                        if img_url not in current_image_urls:
+                            current_image_urls.append(img_url)
+                            image_page_map[img_url] = img_page
+                            
+                        logger.info(f"Extracted image from page {img_page} to {img_url}")
+                        
+                        # Back-associate with previous block if it's on the same page
+                        if processed_docs:
+                            last_doc = processed_docs[-1]
+                            if last_doc.metadata.get("page") == img_page:
+                                if "image_urls" not in last_doc.metadata:
+                                    last_doc.metadata["image_urls"] = []
+                                if img_url not in last_doc.metadata["image_urls"]:
+                                    last_doc.metadata["image_urls"].append(img_url)
+                                    logger.info(f"Back-associated image {img_url} with previous block on page {img_page}")
                 
                 # Extract text
                 text_content = ""
@@ -167,19 +188,31 @@ class BookProcessor:
                     if item.prov and len(item.prov) > 0:
                         page_num = item.prov[0].page_no
                     
-                    # If page changes significantly or image changed, flush
+                    # If page changes significantly, flush
                     if current_metadata.get("page") and abs(page_num - current_metadata["page"]) > 2:
                         flush_block()
                     
+                    # Periodic cleanup of image_urls that are too far back
+                    valid_image_urls = []
+                    for url in current_image_urls:
+                        img_page = image_page_map.get(url, 0)
+                        if abs(page_num - img_page) <= 1: # Within 1 page
+                            valid_image_urls.append(url)
+                    current_image_urls = valid_image_urls
+
                     # Update metadata for the current block if it's empty
                     if not current_text_block:
                         current_metadata = {
                             "source": filename,
                             "book_id": book_id,
-                            "page": page_num
+                            "page": page_num,
+                            "image_urls": list(current_image_urls)
                         }
-                        if current_image_url:
-                            current_metadata["image_url"] = current_image_url
+                    else:
+                        # Append new images that might have been found while buffering this block
+                        for url in current_image_urls:
+                            if url not in current_metadata["image_urls"]:
+                                current_metadata["image_urls"].append(url)
                     
                     current_text_block.append(text_content)
                     
