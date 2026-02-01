@@ -66,13 +66,13 @@ const Home = () => {
                         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-primary text-xs font-bold uppercase tracking-widest mb-4 backdrop-blur-sm shadow-sm">
                             <Zap className="w-3 h-3 fill-primary" /> The Future of Chess Mastery
                         </div>
-                        <h1 className="text-5xl md:text-8xl font-black tracking-tighter leading-[1] pb-2">
+                        <h1 className="text-4xl md:text-6xl font-black tracking-tighter leading-[1] pb-2">
                             Transform Your Game with <br />
                             <span className="bg-gradient-to-r from-blue-600 via-primary to-purple-600 bg-clip-text text-transparent animate-gradient-x px-2">
                                 Artificial Intelligence
                             </span>
                         </h1>
-                        <p className="text-lg md:text-2xl text-muted-foreground max-w-3xl mx-auto font-medium leading-relaxed">
+                        <p className="text-base md:text-xl text-muted-foreground max-w-3xl mx-auto font-medium leading-relaxed">
                             Analyze every move with grandmaster precision. Get deep natural language explanations
                             for why moves work, identify tactical patterns, and learn from 500+ year chess history.
                         </p>
@@ -80,34 +80,26 @@ const Home = () => {
 
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-6 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-300">
                         <Link to="/analysis">
-                            <Button size="lg" className="h-16 px-10 text-xl font-bold rounded-2xl shadow-xl hover:shadow-primary/20 transition-all hover:-translate-y-1 active:scale-95 group">
-                                Start Deep Analysis <ArrowRight className="ml-3 h-6 w-6 group-hover:translate-x-2 transition-transform" />
+                            <Button size="lg" className="h-12 px-8 text-lg font-bold rounded-2xl shadow-xl hover:shadow-primary/20 transition-all hover:-translate-y-1 active:scale-95 group">
+                                Start Deep Analysis <ArrowRight className="ml-3 h-5 w-5 group-hover:translate-x-2 transition-transform" />
                             </Button>
                         </Link>
                         <Link to="/books">
-                            <Button variant="outline" size="lg" className="h-16 px-10 text-xl font-bold rounded-2xl border-2 backdrop-blur-sm hover:bg-muted/50 transition-all hover:-translate-y-1 active:scale-95">
+                            <Button variant="outline" size="lg" className="h-12 px-8 text-lg font-bold rounded-2xl border-2 backdrop-blur-sm hover:bg-muted/50 transition-all hover:-translate-y-1 active:scale-95">
                                 Browse Library
                             </Button>
                         </Link>
                     </div>
 
                     {/* Stats/Social Proof */}
-                    <div className="pt-20 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto animate-in fade-in duration-1000 delay-500 text-muted-foreground/60">
+                    <div className="pt-20 grid grid-cols-2 md:grid-cols-2 gap-8 max-w-2xl mx-auto animate-in fade-in duration-1000 delay-500 text-muted-foreground/60">
                         <div className="space-y-1">
-                            <p className="text-3xl font-black text-foreground">Stockfish 16</p>
-                            <p className="text-sm uppercase font-bold tracking-widest">Core Engine</p>
+                            <p className="text-2xl font-black text-foreground">Stockfish 17</p>
+                            <p className="text-xs uppercase font-bold tracking-widest">Core Engine</p>
                         </div>
                         <div className="space-y-1">
-                            <p className="text-3xl font-black text-foreground">GPT-4o</p>
-                            <p className="text-sm uppercase font-bold tracking-widest">Reasoning Model</p>
-                        </div>
-                        <div className="space-y-1">
-                            <p className="text-3xl font-black text-foreground">50k+</p>
-                            <p className="text-sm uppercase font-bold tracking-widest">Game Database</p>
-                        </div>
-                        <div className="space-y-1">
-                            <p className="text-3xl font-black text-foreground">0.1s</p>
-                            <p className="text-sm uppercase font-bold tracking-widest">Low Latency</p>
+                            <p className="text-2xl font-black text-foreground">GPT-4o</p>
+                            <p className="text-xs uppercase font-bold tracking-widest">Reasoning Model</p>
                         </div>
                     </div>
                 </div>
@@ -140,46 +132,46 @@ const Home = () => {
                         <h2 className="text-xs font-black uppercase tracking-[0.2em] text-primary">Advanced Capabilities</h2>
                         <h3 className="text-4xl md:text-5xl font-black tracking-tight">Level Up Your Chess Skill</h3>
                         <p className="text-muted-foreground text-lg">
-                            We combine the raw power of Stockfish 16 with the intelligent reasoning of GPT-4o to provide an analysis experience unlike any other.
+                            We combine the raw power of Stockfish 17 with the intelligent reasoning of GPT-4o to provide an analysis experience unlike any other.
                         </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         <FeatureCard
                             icon={Brain}
-                            title="Semantic Analysis"
-                            description="Don't just see numbers. Understand 'why' a move is a mistake or a brilliant choice with natural language explanations."
+                            title="Game Review"
+                            description="Deep post-game analysis with move classification (Brilliant, Mistake, Blunder) and accuracy ratings to track your progress."
                             delay={100}
                         />
                         <FeatureCard
                             icon={BookOpen}
                             title="Book Companion"
-                            description="Upload your chess library and chat with an AI grandmaster who knows every page, diagram, and concept in your collection."
+                            description="The world's first RAG-powered chess librarian. Chat with your books and get answers grounded in theory with visual diagram support."
                             delay={200}
                         />
                         <FeatureCard
                             icon={Activity}
-                            title="Real-time Engine"
-                            description="Experience lightning-fast analysis powered by Stockfish 16.1, providing depth and precision for every single position."
+                            title="Self Analysis Board"
+                            description="A powerful sandbox with Stockfish 17.1, Multi-PV analysis, and infinite variation exploration to test your own ideas."
                             delay={300}
                         />
                     </div>
                 </div>
             </section>
 
-            {/* --- HOW IT WORKS --- */}
-            <section id="how-it-works" className="py-32 bg-background border-y border-border/40">
+            {/* --- WORKFLOW: GAME REVIEW --- */}
+            <section className="py-24 bg-background border-y border-border/40">
                 <div className="container mx-auto px-6">
                     <div className="flex flex-col md:flex-row items-center gap-16">
                         <div className="w-full md:w-1/2 space-y-8 text-center md:text-left">
-                            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-primary">Simple Workflow</h2>
-                            <h3 className="text-4xl md:text-5xl font-black tracking-tight">How It Works</h3>
+                            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-primary">Automated Coaching</h2>
+                            <h3 className="text-3xl md:text-5xl font-black tracking-tight">Game Review Workflow</h3>
                             <p className="text-muted-foreground text-lg">
-                                Mastering chess shouldn't be complicated. Our three-step process is designed to get you from beginner to expert efficiently.
+                                Mastering chess shouldn't be complicated. Our automated pipeline breaks down your games into actionable insights.
                             </p>
                             <Link to="/analysis" className="inline-block">
                                 <Button size="lg" className="rounded-xl px-8 group">
-                                    Get Started Now <ChevronRight className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                    Analyze Game <ChevronRight className="ml-2 group-hover:translate-x-1 transition-transform" />
                                 </Button>
                             </Link>
                         </div>
@@ -191,8 +183,8 @@ const Home = () => {
                             />
                             <Step
                                 number="02"
-                                title="Run Engine"
-                                description="Our dedicated Stockfish servers crunch the numbers in milliseconds."
+                                title="Auto Review"
+                                description="Our local engine pipeline classifies every move to find your mistakes."
                             />
                             <Step
                                 number="03"
@@ -203,6 +195,90 @@ const Home = () => {
                                 number="04"
                                 title="Improve"
                                 description="Study your mistakes and track your accuracy growth over time."
+                            />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* --- WORKFLOW: SELF ANALYSIS --- */}
+            <section className="py-24 bg-accent/20 border-b border-border/40">
+                <div className="container mx-auto px-6">
+                    <div className="flex flex-col md:flex-row-reverse items-center gap-16">
+                        <div className="w-full md:w-1/2 space-y-8 text-center md:text-left">
+                            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-primary">Deep Exploration</h2>
+                            <h3 className="text-3xl md:text-5xl font-black tracking-tight">Self Analysis Workflow</h3>
+                            <p className="text-muted-foreground text-lg">
+                                A professional-grade sandbox for the curious mind. Test variations, check engine lines, and find the truth in any position.
+                            </p>
+                            <Link to="/analysis" className="inline-block">
+                                <Button size="lg" variant="outline" className="rounded-xl px-8 group bg-background/50 backdrop-blur-sm">
+                                    Open Board <ChevronRight className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                </Button>
+                            </Link>
+                        </div>
+                        <div className="w-full md:w-1/2 grid grid-cols-1 md:grid-cols-2 gap-12">
+                            <Step
+                                number="01"
+                                title="Open Board"
+                                description="Start with a blank board or import any FEN/PGN position instantly."
+                            />
+                            <Step
+                                number="02"
+                                title="Make Moves"
+                                description="Play freely. The engine follows your lead without restrictions."
+                            />
+                            <Step
+                                number="03"
+                                title="Real-time Eval"
+                                description="Watch the evaluation bar shift instantly as you test ideas."
+                            />
+                            <Step
+                                number="04"
+                                title="Explore Lines"
+                                description="See top 5 engine moves to understand the best responses."
+                            />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* --- WORKFLOW: BOOK COMPANION --- */}
+            <section className="py-24 bg-background border-b border-border/40">
+                <div className="container mx-auto px-6">
+                    <div className="flex flex-col md:flex-row items-center gap-16">
+                        <div className="w-full md:w-1/2 space-y-8 text-center md:text-left">
+                            <h2 className="text-xs font-black uppercase tracking-[0.2em] text-primary">Bibliophilic AI</h2>
+                            <h3 className="text-3xl md:text-5xl font-black tracking-tight">AI Coach Workflow</h3>
+                            <p className="text-muted-foreground text-lg">
+                                Your library comes alive. Chat with your books and get answers grounded in diagram-aware chess literature.
+                            </p>
+                            <Link to="/books" className="inline-block">
+                                <Button size="lg" variant="secondary" className="rounded-xl px-8 group">
+                                    Visit Library <ChevronRight className="ml-2 group-hover:translate-x-1 transition-transform" />
+                                </Button>
+                            </Link>
+                        </div>
+                        <div className="w-full md:w-1/2 grid grid-cols-1 md:grid-cols-2 gap-12">
+                            <Step
+                                number="01"
+                                title="Upload PDF"
+                                description="Add your favorite chess books to your private secure library."
+                            />
+                            <Step
+                                number="02"
+                                title="Ask Question"
+                                description="Ask specific strategic questions like 'How do I play the French Defense?'"
+                            />
+                            <Step
+                                number="03"
+                                title="Visual Search"
+                                description="The AI finds relevant text AND interprets board diagrams on those pages."
+                            />
+                            <Step
+                                number="04"
+                                title="Learn"
+                                description="Get a technical, cited explanation with an interactive board."
                             />
                         </div>
                     </div>
@@ -222,7 +298,7 @@ const Home = () => {
                                 Ready to Play <br /> Better Chess?
                             </h2>
                             <p className="text-xl md:text-2xl opacity-90 font-medium">
-                                Join thousands of players who are already using Chess Cognify to unlock their true potential. Start your journey today.
+                                Start your journey today and unlock your true potential using Chess Cognify.
                             </p>
                             <div className="flex flex-col sm:flex-row items-center justify-center gap-6 pt-4">
                                 <Link to="/analysis">
