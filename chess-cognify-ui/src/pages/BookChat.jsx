@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Send, Book, Bot, User, BookOpen, Upload, FileText, X, ChevronRight, Gamepad2, Loader2, ArrowLeft, AlertCircle, Activity, Quote, ChevronDown } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Send, Book, Bot, User, BookOpen, X, ChevronRight, Gamepad2, Loader2, ArrowLeft, AlertCircle, Activity, Quote, ChevronDown, ListTree } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card } from '@/components/ui/card';
@@ -8,6 +10,151 @@ import Chessboard from '@/components/Chessboard';
 import api from '@/lib/api';
 import useBookStore from '@/store/bookStore';
 import { cn } from '@/lib/utils';
+
+const BRANCH_COLORS = [
+    'rgb(234 88 12)',    // orange-600
+    'rgb(5 150 105)',    // emerald-600
+    'rgb(225 29 72)',    // rose-600
+    'rgb(124 58 237)',   // violet-600
+    'rgb(37 99 235)',    // blue-600
+];
+
+const DocumentStructureTree = ({ mindmap }) => {
+    const [rootExpanded, setRootExpanded] = useState(true);
+    const children = mindmap?.children ?? [];
+    const hasChildren = children.length > 0;
+    const rootLabel = mindmap?.label || 'Document';
+
+    return (
+        <div className="select-none font-sans antialiased">
+            {/* Tree: Document as root node on the trunk, one level above chapters */}
+            {hasChildren ? (
+                <div className="relative pl-0">
+                    {/* Full-height vertical trunk – through Document and all chapters */}
+                    <div
+                        className="absolute left-[9px] top-0 bottom-0 rounded-full bg-primary/70"
+                        style={{ width: 2 }}
+                        aria-hidden
+                    />
+                    {/* Document node – root level: no circle, bolder text, subtle container */}
+                    <div className="relative flex min-h-0">
+                        <div className="flex flex-col items-center shrink-0 pt-2" style={{ width: 24 }}>
+                            {rootExpanded && (
+                                <div className="w-1 flex-1 mt-0 rounded-full min-h-[4px] bg-primary/70" aria-hidden />
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0 pl-3 pr-2 py-2 rounded-lg bg-primary/5 border-b border-primary/10 mb-1">
+                            <button
+                                type="button"
+                                onClick={() => setRootExpanded((e) => !e)}
+                                className={cn(
+                                    "group flex items-center gap-2 w-full text-left py-2 pr-2 rounded-md transition-all duration-150",
+                                    "hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-1",
+                                    "cursor-pointer text-base font-bold text-foreground tracking-tight"
+                                )}
+                            >
+                                <ChevronRight
+                                    className={cn("w-5 h-5 shrink-0 text-primary/80 transition-transform duration-200", rootExpanded && "rotate-90")}
+                                    aria-label={rootExpanded ? "Collapse" : "Expand"}
+                                />
+                                <span className="truncate flex-1 uppercase tracking-wide">{rootLabel}</span>
+                            </button>
+                        </div>
+                    </div>
+                    {/* Chapter nodes – visually nested under Document (indented); single trunk line only */}
+                    {rootExpanded && (
+                        <div className="relative space-y-0 ml-3 pl-1">
+                            {children.map((child, i) => (
+                                <MindmapNode
+                                    key={i}
+                                    node={child}
+                                    depth={0}
+                                    branchColor={BRANCH_COLORS[i % BRANCH_COLORS.length]}
+                                    isFirst={i === 0}
+                                    isLast={i === children.length - 1}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <MindmapNode node={mindmap} depth={0} branchColor={BRANCH_COLORS[0]} />
+            )}
+        </div>
+    );
+};
+
+const MindmapNode = ({ node, depth = 0, branchColor, isFirst, isLast }) => {
+    const [expanded, setExpanded] = useState(depth < 1);
+    const hasChildren = node?.children?.length > 0;
+    const label = node?.label || '';
+    const page = node?.page;
+    const color = branchColor || 'rgb(148 163 184)';
+
+    if (!node) return null;
+
+    const isTopLevel = depth === 0;
+
+    return (
+        <div className="relative flex min-h-0">
+            {/* Tree connector: visible circle + vertical line */}
+            <div className="flex flex-col items-center shrink-0 pt-1.5" style={{ width: 20 }}>
+                <div
+                    className="w-3 h-3 rounded-full border-2 shrink-0 bg-background"
+                    style={{ borderColor: color }}
+                    aria-hidden
+                />
+                {hasChildren && expanded && (
+                    <div
+                        className="w-1 flex-1 mt-1 rounded-full min-h-[4px]"
+                        style={{ backgroundColor: color }}
+                        aria-hidden
+                    />
+                )}
+            </div>
+            <div className={cn("flex-1 min-w-0 pl-3 pb-1", isTopLevel && "pb-2.5")}>
+                <button
+                    type="button"
+                    onClick={() => hasChildren && setExpanded((e) => !e)}
+                    className={cn(
+                        "group flex items-center gap-2 w-full text-left py-1.5 pr-2 rounded-md transition-all duration-150",
+                        "hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-primary/25 focus:ring-offset-0",
+                        hasChildren && "cursor-pointer",
+                        isTopLevel ? "text-sm font-medium text-foreground" : "text-xs text-muted-foreground leading-relaxed"
+                    )}
+                >
+                    {hasChildren ? (
+                        <ChevronRight
+                            className={cn("w-4 h-4 shrink-0 text-muted-foreground/70 transition-transform duration-200", expanded && "rotate-90")}
+                            aria-label={expanded ? "Collapse" : "Expand"}
+                        />
+                    ) : null}
+                    <span className="truncate flex-1">{label}</span>
+                    {page != null && (
+                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/60 font-medium">p.{page}</span>
+                    )}
+                </button>
+                {hasChildren && expanded && (
+                    <div
+                        className="relative pl-4 ml-1 mt-0.5 space-y-0 min-h-[2px]"
+                        style={{
+                            borderLeft: `2px solid ${color}`,
+                        }}
+                    >
+                        {node.children.map((child, i) => (
+                            <MindmapNode
+                                key={i}
+                                node={child}
+                                depth={depth + 1}
+                                branchColor={color}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const SourceSection = ({ sources }) => {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -52,12 +199,28 @@ const BookChat = () => {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
     const [isSending, setIsSending] = useState(false);
+    const [mindmapOpen, setMindmapOpen] = useState(false);
+    const [mindmap, setMindmap] = useState(null);
+    const [mindmapLoading, setMindmapLoading] = useState(false);
 
     useEffect(() => {
         if (bookId) {
             fetchBookDetails(bookId);
         }
     }, [bookId, fetchBookDetails]);
+
+    useEffect(() => {
+        if (!mindmapOpen || !bookId) return;
+        setMindmapLoading(true);
+        api.get(`/api/books/${bookId}/mindmap`)
+            .then((res) => {
+                setMindmap(res.data.mindmap ?? null);
+            })
+            .catch(() => {
+                setMindmap(null);
+            })
+            .finally(() => setMindmapLoading(false));
+    }, [mindmapOpen, bookId]);
 
     const handleSend = async () => {
         if (!input.trim() || isSending) return;
@@ -127,14 +290,19 @@ const BookChat = () => {
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setMindmapOpen(true)} title="Document structure & suggested questions">
+                        <ListTree className="w-4 h-4 mr-1" />
+                        Mindmap
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setMessages([])}>
                         Clear Chat
                     </Button>
                 </div>
             </div>
 
+            <div className="flex flex-1 overflow-hidden min-h-0">
             {/* Chat Body */}
-            <div className="flex-1 overflow-hidden relative container mx-auto max-w-4xl flex flex-col my-4  rounded-xl shadow-sm">
+            <div className={cn("flex-1 overflow-hidden relative container mx-auto max-w-4xl flex flex-col my-4 rounded-xl shadow-sm min-w-0", mindmapOpen && "mr-0")}>
                 <ScrollArea className="flex-1 p-6">
                     <div className="space-y-8 min-h-full pb-4">
                         {messages.length === 0 && (
@@ -160,8 +328,19 @@ const BookChat = () => {
                                     {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                                 </div>
                                 <div className={`flex flex-col gap-2 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                    <div className={`rounded-xl p-4 text-sm leading-relaxed shadow-sm whitespace-pre-wrap ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-white border'}`}>
-                                        {msg.content}
+                                    <div className={cn(
+                                        'rounded-xl p-4 text-sm leading-relaxed shadow-sm',
+                                        msg.role === 'user' ? 'bg-primary text-primary-foreground whitespace-pre-wrap' : 'bg-white border'
+                                    )}>
+                                        {msg.role === 'user' ? (
+                                            msg.content
+                                        ) : (
+                                            <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:mt-4 prose-headings:mb-2 prose-pre:my-2 prose-pre:bg-muted prose-pre:rounded-lg prose-pre:p-3 prose-code:bg-muted prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {String(msg.content ?? '')}
+                                                </ReactMarkdown>
+                                            </div>
+                                        )}
 
                                         {/* Sources Section for Assistant */}
                                         {msg.role === 'assistant' && <SourceSection sources={msg.sources} />}
@@ -294,6 +473,36 @@ const BookChat = () => {
                         </Button>
                     </div>
                 </div>
+            </div>
+
+            {/* Right sidebar: Mindmap / Document structure – 75% width, scrollable */}
+            {mindmapOpen && (
+                <div className="w-[75vw] max-w-[75vw] min-w-0 shrink-0 h-full flex flex-col overflow-hidden animate-in slide-in-from-right-5 duration-200 shadow-2xl border-l bg-card/95 backdrop-blur">
+                    <div className="flex items-center justify-between p-4 border-b shrink-0">
+                        <h2 className="text-base font-bold flex items-center gap-2">
+                            <ListTree className="w-5 h-5 text-primary" />
+                            Document structure
+                        </h2>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setMindmapOpen(false)} title="Close">
+                            <X className="w-5 h-5" />
+                        </Button>
+                    </div>
+                    <ScrollArea className="flex-1 min-h-0 p-6">
+                        {mindmapLoading ? (
+                            <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+                                <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                                Loading...
+                            </div>
+                        ) : mindmap ? (
+                            <div className="rounded-xl overflow-hidden bg-muted/20 dark:bg-muted/10 border border-border/50 p-6 min-h-[200px] pb-8 shadow-sm">
+                                <DocumentStructureTree mindmap={mindmap} />
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground py-8">No document structure available for this book.</p>
+                        )}
+                    </ScrollArea>
+                </div>
+            )}
             </div>
         </div>
     );

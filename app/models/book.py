@@ -23,6 +23,7 @@ class Book(Base):
     total_pages = Column(Integer, nullable=True)
     total_chunks = Column(Integer, nullable=True)  # Number of text chunks created
     book_metadata = Column("metadata", JSON, nullable=True)  # Additional metadata (ISBN, year, etc.)
+    outline = Column(JSON, nullable=True)  # Document structure / mindmap tree from Docling (headings hierarchy)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

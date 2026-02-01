@@ -1,6 +1,7 @@
 """
 Application configuration using Pydantic Settings.
 """
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
@@ -61,6 +62,27 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: Optional[str] = None
     qdrant_collection_name: str = "chess_books"
+
+    # RAG retrieval and filter limits (book chat pipeline)
+    # Over-retrieve then let LLM reranker pick best chunks; tune via env if needed.
+    rag_retrieve_k: int = Field(
+        default=15,
+        ge=5,
+        le=50,
+        description="Number of chunks to retrieve from vector store per query (before relevance filter).",
+    )
+    rag_filter_min_chunks: int = Field(
+        default=2,
+        ge=1,
+        le=20,
+        description="Minimum number of chunks to keep after relevance filter (passed to LLM context).",
+    )
+    rag_filter_max_chunks: int = Field(
+        default=10,
+        ge=2,
+        le=20,
+        description="Maximum number of chunks to keep after relevance filter (passed to LLM context).",
+    )
 
     # Embedding Model - Ollama (Local)
     ollama_base_url: str = "http://localhost:11434"

@@ -138,6 +138,45 @@ async def get_book(book_id: str, db: Session = Depends(get_db)):
         created_at=book.created_at.isoformat() if book.created_at else None
     )
 
+def _collect_outline_labels(node: Optional[Dict[str, Any]], max_depth: int, depth: int = 0) -> List[str]:
+    """Collect label strings from outline tree up to max_depth for suggested queries."""
+    if not node or depth > max_depth:
+        return []
+    labels = []
+    label = (node.get("label") or "").strip()
+    if label and label.lower() != "document":
+        labels.append(label)
+    for child in node.get("children") or []:
+        labels.extend(_collect_outline_labels(child, max_depth, depth + 1))
+    return labels
+
+
+@router.get("/{book_id}/mindmap")
+async def get_book_mindmap(book_id: str, db: Session = Depends(get_db)):
+    """
+    Get document structure (mindmap) and suggested queries for the book.
+    Returns outline tree from Docling parsing and query suggestions derived from section labels.
+    """
+    book = db.query(Book).filter(Book.book_id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+    mindmap = getattr(book, "outline", None) or (book.book_metadata or {}).get("outline")
+    suggested_queries: List[str] = []
+    if mindmap and isinstance(mindmap, dict):
+        labels = _collect_outline_labels(mindmap, max_depth=2)[:20]
+        seen = set()
+        for label in labels:
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            suggested_queries.append(f"Explain {label}")
+            suggested_queries.append(f"What does the book say about {label}?")
+            if len(suggested_queries) >= 15:
+                break
+        suggested_queries = suggested_queries[:15]
+    return {"mindmap": mindmap, "suggested_queries": suggested_queries}
+
+
 @router.get("/{book_id}/status")
 async def get_book_status(book_id: str, db: Session = Depends(get_db)):
     """Get the processing status of a book."""

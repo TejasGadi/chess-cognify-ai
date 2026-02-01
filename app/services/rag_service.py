@@ -138,8 +138,8 @@ class RagService:
             """
         )
         
-        # Define Chain
-        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 10})
+        # Define Chain (same k as pipeline for consistency)
+        self.retriever = self.vector_store.as_retriever(search_kwargs={"k": settings.rag_retrieve_k})
         self.chain = (
             {"context": self.retriever, "question": RunnablePassthrough()}
             | self.prompt
@@ -182,8 +182,9 @@ class RagService:
     async def _node_retrieve(self, state: RAGState) -> Dict[str, Any]:
         """Node: Configure retriever and run vector retrieval."""
         step_start = time.perf_counter()
+        k = settings.rag_retrieve_k
         logger.info(f"[RAG] Step 1: Vector retrieval | query_preview={state.get('user_query', '')[:80]}...")
-        search_kwargs: Dict[str, Any] = {"k": 15}
+        search_kwargs: Dict[str, Any] = {"k": k}
         if state.get("book_id"):
             search_kwargs["filter"] = models.Filter(
                 must=[
@@ -193,7 +194,7 @@ class RagService:
                     )
                 ]
             )
-        logger.debug(f"[RAG] Step 1: search_kwargs k=15 book_id_filter={bool(state.get('book_id'))}")
+        logger.debug(f"[RAG] Step 1: search_kwargs k={k} book_id_filter={bool(state.get('book_id'))}")
         retriever = self.vector_store.as_retriever(search_kwargs=search_kwargs)
         docs = await retriever.ainvoke(state["user_query"])
         step_elapsed = (time.perf_counter() - step_start) * 1000
@@ -214,6 +215,8 @@ class RagService:
             step_elapsed = (time.perf_counter() - step_start) * 1000
             logger.info(f"[RAG] Step 1b: Extract relevant chunks | before=0 | after=0 | time_ms={step_elapsed:.2f}")
             return {"docs": []}
+        filter_min = settings.rag_filter_min_chunks
+        filter_max = max(settings.rag_filter_max_chunks, filter_min)
         candidates = "\n".join(
             f"[{i}] {doc.page_content[:300]}…" if len(doc.page_content) > 300 else f"[{i}] {doc.page_content}"
             for i, doc in enumerate(docs)
@@ -225,7 +228,7 @@ User question: {user_query[:400]}
 Chunk excerpts (index then content):
 {candidates}
 
-Task: Which chunk indices are relevant to answering the user's question? Return only the indices that should be passed to the main LLM as context. Preserve order by relevance (most relevant first). Include at least 2 and at most 10 indices. If fewer than 10 are relevant, return only those."""
+Task: Which chunk indices are relevant to answering the user's question? Return only the indices that should be passed to the main LLM as context. Preserve order by relevance (most relevant first). Include at least {filter_min} and at most {filter_max} indices. If fewer than {filter_max} are relevant, return only those."""
 
         try:
             structured_llm = self.llm.with_structured_output(RelevantChunkIndices)
