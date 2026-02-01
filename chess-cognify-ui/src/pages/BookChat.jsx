@@ -30,13 +30,7 @@ const DocumentStructureTree = ({ mindmap }) => {
             {/* Tree: Document as root node on the trunk, one level above chapters */}
             {hasChildren ? (
                 <div className="relative pl-0">
-                    {/* Full-height vertical trunk – through Document and all chapters */}
-                    <div
-                        className="absolute left-[9px] top-0 bottom-0 rounded-full bg-primary/70"
-                        style={{ width: 2 }}
-                        aria-hidden
-                    />
-                    {/* Document node – root level: no circle, bolder text, subtle container */}
+                    {/* Document node – root level: no circle, bolder text, subtle container (no outer trunk line) */}
                     <div className="relative flex min-h-0">
                         <div className="flex flex-col items-center shrink-0 pt-2" style={{ width: 24 }}>
                             {rootExpanded && (
@@ -197,6 +191,7 @@ const BookChat = () => {
     const { currentBook, fetchBookDetails, isLoading: isBookLoading } = useBookStore();
 
     const [messages, setMessages] = useState([]);
+    const [sessionId, setSessionId] = useState(null);  // Backend handles chat history; we send this for last 3 msgs.
     const [input, setInput] = useState("");
     const [isSending, setIsSending] = useState(false);
     const [mindmapOpen, setMindmapOpen] = useState(false);
@@ -231,13 +226,19 @@ const BookChat = () => {
         setIsSending(true);
 
         try {
-            const response = await api.post(`/api/books/${bookId}/query`, { query: userMsg });
+            const response = await api.post(`/api/books/${bookId}/query`, {
+                query: userMsg,
+                session_id: sessionId ?? undefined,
+            });
             const data = response.data;
+            if (data.session_id) setSessionId(data.session_id);
             setMessages(prev => [...prev, {
                 role: 'assistant',
                 content: data.answer,
                 chess_data: data.chess_data,
-                sources: data.sources
+                sources: data.sources,
+                images: data.images,
+                vlm_summaries: data.vlm_summaries,
             }]);
         } catch (error) {
             console.error("Book chat error", error);
@@ -294,7 +295,7 @@ const BookChat = () => {
                         <ListTree className="w-4 h-4 mr-1" />
                         Mindmap
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setMessages([])}>
+                    <Button variant="outline" size="sm" onClick={() => { setMessages([]); setSessionId(null); }}>
                         Clear Chat
                     </Button>
                 </div>
@@ -303,6 +304,7 @@ const BookChat = () => {
             <div className="flex flex-1 overflow-hidden min-h-0">
             {/* Chat Body */}
             <div className={cn("flex-1 overflow-hidden relative container mx-auto max-w-4xl flex flex-col my-4 rounded-xl shadow-sm min-w-0", mindmapOpen && "mr-0")}>
+                <>
                 <ScrollArea className="flex-1 p-6">
                     <div className="space-y-8 min-h-full pb-4">
                         {messages.length === 0 && (
@@ -345,98 +347,96 @@ const BookChat = () => {
                                         {/* Sources Section for Assistant */}
                                         {msg.role === 'assistant' && <SourceSection sources={msg.sources} />}
 
-                                        {/* Image Gallery for Assistant - Unique images found in context */}
-                                        {msg.role === 'assistant' && msg.images && msg.images.length > 0 && (
+                                        {/* Single section: Retrieved Book Diagrams & Vision Analysis (images + FEN-only positions, all with titles) */}
+                                        {msg.role === 'assistant' && (() => {
+                                            const hasImages = msg.images && msg.images.length > 0;
+                                            const imageUrls = new Set(msg.images || []);
+                                            const fenOnlyCards = (msg.chess_data && Array.isArray(msg.chess_data))
+                                                ? msg.chess_data.filter(chess => !chess.image_url || !imageUrls.has(chess.image_url))
+                                                : [];
+                                            const hasFenOnly = fenOnlyCards.length > 0;
+                                            if (!hasImages && !hasFenOnly) return null;
+                                            return (
                                             <div className="mt-4 pt-4 border-t space-y-4">
                                                 <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60 flex items-center gap-2">
                                                     <BookOpen className="w-3 h-3" />
                                                     Retrieved Book Diagrams & Vision Analysis
                                                 </p>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    {msg.images.map((imgUrl, idx) => (
-                                                        <div key={idx} className="flex flex-col gap-3 bg-muted/20 rounded-xl border p-3 group">
-                                                            <div className="aspect-square bg-white rounded-lg border overflow-hidden relative cursor-zoom-in">
-                                                                <img
-                                                                    src={imgUrl}
-                                                                    alt={`Diagram ${idx + 1}`}
-                                                                    className="w-full h-full object-contain transition-transform group-hover:scale-105"
-                                                                    onClick={() => window.open(imgUrl, '_blank')}
-                                                                />
-                                                                <div className="absolute top-2 right-2">
-                                                                    <div className="bg-black/50 backdrop-blur-sm text-white text-[8px] px-1.5 py-0.5 rounded font-bold">
-                                                                        Page {msg.sources?.find(s => s.metadata.image_urls?.includes(imgUrl) || s.metadata.image_url === imgUrl)?.metadata.page || '?'}
+                                                    {msg.images?.map((imgUrl, idx) => {
+                                                        const matchingChess = msg.chess_data?.find(c => c.image_url === imgUrl);
+                                                        const title = matchingChess?.description || `Diagram ${idx + 1}`;
+                                                        const notation = matchingChess?.pgn || (matchingChess?.moves ? matchingChess.moves.join(' ') : null);
+                                                        return (
+                                                            <div key={`img-${idx}`} className="flex flex-col gap-3 bg-muted/20 rounded-xl border p-3 group">
+                                                                <h4 className="text-sm font-bold uppercase tracking-wide text-foreground">
+                                                                    {title}
+                                                                </h4>
+                                                                <div className="aspect-square bg-white rounded-lg border overflow-hidden relative cursor-zoom-in">
+                                                                    <img
+                                                                        src={imgUrl}
+                                                                        alt={title}
+                                                                        className="w-full h-full object-contain transition-transform group-hover:scale-105"
+                                                                        onClick={() => window.open(imgUrl, '_blank')}
+                                                                    />
+                                                                    <div className="absolute top-2 right-2">
+                                                                        <div className="bg-black/50 backdrop-blur-sm text-white text-[8px] px-1.5 py-0.5 rounded font-bold">
+                                                                            Page {msg.sources?.find(s => s.metadata.image_urls?.includes(imgUrl) || s.metadata.image_url === imgUrl)?.metadata.page || '?'}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
+                                                                {notation && (
+                                                                    <div className="space-y-1.5">
+                                                                        <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Sequence / Notation</p>
+                                                                        <div className="text-xs font-mono text-foreground p-3 bg-muted rounded-lg border leading-relaxed break-all">
+                                                                            {notation}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                {msg.vlm_summaries?.[imgUrl] && (
+                                                                    <div className="space-y-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                                                            <p className="text-[8px] font-black uppercase tracking-widest text-primary/70">Technical Summary (VLM)</p>
+                                                                        </div>
+                                                                        <p className="text-[11px] leading-relaxed text-muted-foreground font-medium italic">
+                                                                            "{msg.vlm_summaries[imgUrl]}"
+                                                                        </p>
+                                                                    </div>
+                                                                )}
                                                             </div>
-
-                                                            {msg.vlm_summaries && msg.vlm_summaries[imgUrl] && (
-                                                                <div className="space-y-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                                                                        <p className="text-[8px] font-black uppercase tracking-widest text-primary/70">Technical Summary (VLM)</p>
-                                                                    </div>
-                                                                    <p className="text-[11px] leading-relaxed text-muted-foreground font-medium italic">
-                                                                        "{msg.vlm_summaries[imgUrl]}"
-                                                                    </p>
+                                                        );
+                                                    })}
+                                                    {fenOnlyCards.map((chess, idx) => {
+                                                        const notation = chess.pgn || (chess.moves ? chess.moves.join(' ') : null);
+                                                        const title = chess.description || `Position ${idx + 1}`;
+                                                        return (
+                                                            <div key={`fen-${idx}`} className="flex flex-col gap-3 bg-muted/20 rounded-xl border p-3 group">
+                                                                <h4 className="text-sm font-bold uppercase tracking-wide text-foreground">
+                                                                    {title}
+                                                                </h4>
+                                                                <div className="aspect-square bg-white rounded-lg border overflow-hidden">
+                                                                    <Chessboard
+                                                                        fen={chess.fen}
+                                                                        viewOnly={true}
+                                                                    />
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    ))}
+                                                                {notation && (
+                                                                    <div className="space-y-1.5">
+                                                                        <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Sequence / Notation</p>
+                                                                        <div className="text-xs font-mono text-foreground p-3 bg-muted rounded-lg border leading-relaxed break-all">
+                                                                            {notation}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
-
-                                    {/* Render Chess Boards if chess_data is present (Specific positions discussed) */}
-                                    {msg.chess_data && Array.isArray(msg.chess_data) && msg.chess_data.length > 0 && (
-                                        <div className="flex flex-col gap-4 w-full mt-4">
-                                            {msg.chess_data.map((chess, idx) => (
-                                                <Card key={idx} className="w-full max-w-2xl bg-card border shadow-md overflow-hidden">
-                                                    <div className="flex items-center justify-between p-4 border-b bg-muted/30">
-                                                        <div className="flex items-center gap-2">
-                                                            <Gamepad2 className="w-5 h-5 text-primary" />
-                                                            <h4 className="text-sm font-black uppercase tracking-widest text-foreground">
-                                                                {chess.description || `Position ${idx + 1}`}
-                                                            </h4>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="p-4 grid grid-cols-1 md:grid-cols-12 gap-6">
-                                                        <div className="md:col-span-7 bg-muted/20 rounded-xl overflow-hidden border p-1 shadow-inner relative group min-h-[300px] flex items-center justify-center">
-                                                            {chess.image_url ? (
-                                                                <img
-                                                                    src={chess.image_url}
-                                                                    alt={chess.description || "Chess Diagram"}
-                                                                    className="max-w-full max-h-full object-contain rounded-lg"
-                                                                    onError={(e) => {
-                                                                        e.target.style.display = 'none';
-                                                                        e.target.nextSibling.style.display = 'block';
-                                                                    }}
-                                                                />
-                                                            ) : null}
-                                                            <div className={cn("w-full aspect-square", chess.image_url ? "hidden" : "block")}>
-                                                                <Chessboard
-                                                                    fen={chess.fen}
-                                                                    viewOnly={true}
-                                                                />
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="md:col-span-5 flex flex-col gap-4">
-                                                            {(chess.moves || chess.pgn) && (
-                                                                <div className="space-y-1.5">
-                                                                    <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground/60">Sequence / Notation</p>
-                                                                    <div className="text-xs font-mono text-foreground p-3 bg-muted rounded-lg border leading-relaxed break-all">
-                                                                        {chess.pgn || (chess.moves ? chess.moves.join(' ') : '')}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         ))}
@@ -473,6 +473,7 @@ const BookChat = () => {
                         </Button>
                     </div>
                 </div>
+                </>
             </div>
 
             {/* Right sidebar: Mindmap / Document structure – 75% width, scrollable */}

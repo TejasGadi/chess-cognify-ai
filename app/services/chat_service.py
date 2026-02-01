@@ -163,6 +163,37 @@ class ChatService:
             logger.error(f"Error getting conversation history: {e}")
             return []
 
+    def get_recent_conversation_history(
+        self,
+        db,
+        session_id: str,
+        context_type: str,
+        context_id: str,
+        limit: int = 3,
+    ) -> List[Dict[str, str]]:
+        """
+        Get the last N messages for a session in chronological order (oldest first).
+        Used e.g. for RAG query reformulation with backend-handled chat history.
+        """
+        try:
+            query = (
+                db.query(ChatMessage)
+                .filter(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.context_type == context_type,
+                    ChatMessage.context_id == context_id,
+                )
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
+            )
+            messages = query.all()
+            # Reverse so chronological (oldest first).
+            ordered = list(reversed(messages))
+            return [{"role": msg.role, "content": msg.content} for msg in ordered]
+        except Exception as e:
+            logger.error(f"Error getting recent conversation history: {e}")
+            return []
+
     def get_all_sessions(self, game_id: str) -> List[str]:
         """
         Get all session IDs for a game.

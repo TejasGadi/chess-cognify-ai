@@ -26,10 +26,16 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+# Number of past messages to use for query reformulation (backend-handled chat history).
+RAG_CHAT_HISTORY_LIMIT = 3
+
+
 class RAGState(TypedDict, total=False):
     """State schema for RAG LangGraph pipeline."""
 
     user_query: str
+    chat_history: Optional[List[Dict[str, str]]]  # Last N messages for reformulation (backend-provided)
+    search_query: Optional[str]  # Reformulated query used for retrieval only
     book_id: Optional[str]
     docs: List[Any]
     unique_image_urls: List[str]
@@ -154,6 +160,7 @@ class RagService:
         """Build LangGraph StateGraph with 8 nodes and linear edges. Returns compiled graph."""
         workflow = StateGraph(RAGState)
 
+        workflow.add_node("reformulate_query", self._node_reformulate_query)
         workflow.add_node("retrieve", self._node_retrieve)
         workflow.add_node("extract_relevant_chunks", self._node_extract_relevant_chunks)
         workflow.add_node("extract_images", self._node_extract_images)
@@ -165,7 +172,8 @@ class RagService:
         workflow.add_node("filter_images", self._node_filter_images)
         workflow.add_node("build_output", self._node_build_output)
 
-        workflow.add_edge(START, "retrieve")
+        workflow.add_edge(START, "reformulate_query")
+        workflow.add_edge("reformulate_query", "retrieve")
         workflow.add_edge("retrieve", "extract_relevant_chunks")
         workflow.add_edge("extract_relevant_chunks", "extract_images")
         workflow.add_edge("extract_images", "extract_relevant_images")
@@ -179,11 +187,52 @@ class RagService:
 
         return workflow.compile()
 
+    async def _node_reformulate_query(self, state: RAGState) -> Dict[str, Any]:
+        """Node: Reformulate user query using last 3 chat messages for better retrieval (backend-handled history)."""
+        step_start = time.perf_counter()
+        user_query = state.get("user_query") or ""
+        chat_history = state.get("chat_history") or []
+        # Use at most the last 3 messages (backend is expected to pass exactly 3; clamp for safety).
+        recent = chat_history[-RAG_CHAT_HISTORY_LIMIT:] if chat_history else []
+
+        if not recent:
+            step_elapsed = (time.perf_counter() - step_start) * 1000
+            logger.info(f"[RAG] Step 0: Query reformulation | skipped (no history) | time_ms={step_elapsed:.2f}")
+            return {"search_query": user_query}
+
+        history_blob = "\n".join(
+            f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent
+        )
+        reformulate_prompt = f"""You are a query reformulator for a chess book search system. Given the recent conversation and the latest user message, output a single standalone search query that would find the right book passages. The search query must be self-contained (no pronouns like "it" or "that"), and should reflect what the user is asking in the context of the conversation.
+
+Recent conversation (last {len(recent)} messages):
+{history_blob}
+
+Current user message: {user_query}
+
+Output only the standalone search query, one line, no explanation."""
+
+        try:
+            response = await self.llm.ainvoke([HumanMessage(content=reformulate_prompt)])
+            search_query = (response.content or "").strip() or user_query
+        except Exception as e:
+            logger.warning(f"[RAG] reformulate_query fallback to user_query | error={e}")
+            search_query = user_query
+
+        step_elapsed = (time.perf_counter() - step_start) * 1000
+        logger.info(
+            f"[RAG] Step 0: Query reformulation | history_messages={len(recent)} | time_ms={step_elapsed:.2f}"
+        )
+        logger.debug(f"[RAG] Step 0: search_query_preview={search_query[:80]!r}...")
+        return {"search_query": search_query}
+
     async def _node_retrieve(self, state: RAGState) -> Dict[str, Any]:
-        """Node: Configure retriever and run vector retrieval."""
+        """Node: Configure retriever and run vector retrieval (uses reformulated search_query when available)."""
         step_start = time.perf_counter()
         k = settings.rag_retrieve_k
-        logger.info(f"[RAG] Step 1: Vector retrieval | query_preview={state.get('user_query', '')[:80]}...")
+        # Use reformulated query for retrieval; original user_query is used later for answer generation.
+        search_query = state.get("search_query") or state.get("user_query") or ""
+        logger.info(f"[RAG] Step 1: Vector retrieval | search_query_preview={search_query[:80]}...")
         search_kwargs: Dict[str, Any] = {"k": k}
         if state.get("book_id"):
             search_kwargs["filter"] = models.Filter(
@@ -196,7 +245,7 @@ class RagService:
             )
         logger.debug(f"[RAG] Step 1: search_kwargs k={k} book_id_filter={bool(state.get('book_id'))}")
         retriever = self.vector_store.as_retriever(search_kwargs=search_kwargs)
-        docs = await retriever.ainvoke(state["user_query"])
+        docs = await retriever.ainvoke(search_query)
         step_elapsed = (time.perf_counter() - step_start) * 1000
         logger.info(f"[RAG] Step 1: Vector retrieval | docs_retrieved={len(docs)} | time_ms={step_elapsed:.2f}")
         for idx, doc in enumerate(docs):
@@ -406,19 +455,28 @@ Task: Which image URLs are likely relevant to answering the user's question? Ret
         ]
         return {"sources": sources}
 
-    async def query(self, user_query: str, book_id: Optional[str] = None) -> Dict[str, Any]:
+    async def query(
+        self,
+        user_query: str,
+        book_id: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """
         Process a user query using RAG with VLM-enhanced visual analysis.
+        Chat history (last 3 messages) is used for query reformulation for retrieval only;
+        history is provided by the backend from DB, not the frontend.
         Retries on OpenAI 429 rate limit with backoff.
         """
         max_attempts = 3
         base_delay = 5.0  # seconds
 
         pipeline_start = time.perf_counter()
-        logger.info(f"[RAG] Pipeline started | query_len={len(user_query)} | book_id={book_id}")
+        history_count = len(chat_history) if chat_history else 0
+        logger.info(f"[RAG] Pipeline started | query_len={len(user_query)} | book_id={book_id} | chat_history_messages={history_count}")
 
         initial_state: RAGState = {
             "user_query": user_query,
+            "chat_history": (chat_history or [])[-RAG_CHAT_HISTORY_LIMIT:],  # At most last 3
             "book_id": book_id,
             "docs": [],
             "unique_image_urls": [],

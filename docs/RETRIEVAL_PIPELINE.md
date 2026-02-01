@@ -36,19 +36,38 @@ So at **ingestion** you have:
 
 ---
 
+## Query reformulation (chat history, backend-handled)
+
+Before retrieval, the user query can be **reformulated** using the **last 3 messages** of the conversation so that follow-ups (e.g. “What about the Sicilian?”) become standalone search queries. Chat history is **handled on the backend** (not sent from the frontend):
+
+- **API:** `POST /api/books/{book_id}/query` accepts optional `session_id`. If missing, the backend creates one and returns it. The backend loads the last 3 messages for that `(book_id, session_id)` from the DB and passes them to the RAG pipeline.
+- **Storage:** Messages are stored in `chat_messages` with `context_type="book"`, `context_id=book_id`, and `session_id`. `ChatService.get_recent_conversation_history(..., limit=3)` returns the last 3 messages in chronological order.
+- **Pipeline:** The LangGraph state includes `chat_history` (last 3 messages) and `search_query` (reformulated query). The **reformulate_query** node runs first: if there is history, an LLM turns “current user message + last 3 messages” into a single standalone query; otherwise `search_query = user_query`. **Retrieval** uses `search_query`; **answer generation** and relevance filtering still use the original `user_query`.
+
+So: **retrieval** uses the reformulated query; **answer** is generated for the original user question.
+
+---
+
 ## Full retrieval pipeline (step-by-step)
 
 The pipeline is a **LangGraph** state machine with this flow:
 
 ```
-START → retrieve → extract_relevant_chunks → extract_images → extract_relevant_images
+START → reformulate_query → retrieve → extract_relevant_chunks → extract_images → extract_relevant_images
   → vlm_summaries → format_context → generate_answer → parse_response
   → filter_images → build_output → END
 ```
 
+### Step 0: **reformulate_query** (`_node_reformulate_query`)
+
+- **What:** Optionally reformulate the user query for retrieval using the last 3 chat messages (backend-provided).
+- **Input:** `state["user_query"]`, `state["chat_history"]` (at most 3 messages, from DB).
+- **Output:** `state["search_query"]` = standalone query for vector search, or `user_query` if no history.
+- **When skipped:** If `chat_history` is empty, `search_query` is set to `user_query` and no LLM call is made.
+
 ### Step 1: **retrieve** (`_node_retrieve`)
 
-- **What:** Vector similarity search in Qdrant.
+- **What:** Vector similarity search in Qdrant. Uses **reformulated** `state["search_query"]` (or `user_query` if no reformulation).
 - **How many:** `settings.rag_retrieve_k` documents (default 15).
 - **Filter:** If `book_id` is present (e.g. from `/api/books/{book_id}/query`), only chunks with `metadata.book_id == book_id` are considered.
 - **Output:** `state["docs"]` = list of up to 15 `Document` objects (LangChain style with `page_content` and `metadata`).

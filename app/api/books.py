@@ -8,6 +8,7 @@ import uuid
 
 from app.services.book_processor import book_processor
 from app.services.rag_service import rag_service
+from app.services.chat_service import ChatService
 from app.utils.logger import get_logger
 from app.models.book import Book
 from app.models.base import get_db, SessionLocal
@@ -21,12 +22,16 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class QueryRequest(BaseModel):
     query: str
+    session_id: Optional[str] = None  # Backend loads chat history for this session; create if missing.
 
 class QueryResponse(BaseModel):
     answer: str
     chess_data: Optional[List[Dict[str, Any]]] = None
     sources: Optional[List[Dict[str, Any]]] = None
+    images: Optional[List[str]] = None
+    vlm_summaries: Optional[Dict[str, str]] = None
     status: str
+    session_id: Optional[str] = None  # Return so client can send it on subsequent messages.
 
 class BookResponse(BaseModel):
     book_id: str
@@ -185,21 +190,59 @@ async def get_book_status(book_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Book not found")
     return status
 
+# Chat history is handled on the backend (DB); we use last 3 messages for query reformulation.
+BOOK_CHAT_HISTORY_LIMIT = 3
+
 @router.post("/{book_id}/query", response_model=QueryResponse)
 async def query_book(book_id: str, request: QueryRequest, db: Session = Depends(get_db)):
     """
-    Query a specific chess book.
+    Query a specific chess book. Chat history is loaded from DB (last 3 messages)
+    and used for query reformulation for RAG search; session_id is created if not provided.
     """
-    # Verify book exists
     book = db.query(Book).filter(Book.book_id == book_id).first()
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
-    if book.status != 'completed':
+    if book.status != "completed":
         raise HTTPException(status_code=400, detail=f"Book is not ready for queries. Status: {book.status}")
-    
+
+    chat_service = ChatService()
+    session_id = request.session_id or chat_service.create_session_id()
+
+    # Backend loads chat history (last 3 messages) for this book session.
+    last_3 = chat_service.get_recent_conversation_history(
+        db=db,
+        session_id=session_id,
+        context_type="book",
+        context_id=book_id,
+        limit=BOOK_CHAT_HISTORY_LIMIT,
+    )
+
     try:
-        result = await rag_service.query(request.query, book_id=book_id)
+        result = await rag_service.query(
+            user_query=request.query,
+            book_id=book_id,
+            chat_history=last_3 if last_3 else None,
+        )
+        # Persist user and assistant messages so next request can use them for reformulation.
+        chat_service.add_message(
+            db=db,
+            game_id=None,
+            session_id=session_id,
+            role="user",
+            content=request.query,
+            context_type="book",
+            context_id=book_id,
+        )
+        chat_service.add_message(
+            db=db,
+            game_id=None,
+            session_id=session_id,
+            role="assistant",
+            content=result.get("answer", ""),
+            context_type="book",
+            context_id=book_id,
+        )
+        result["session_id"] = session_id
         return result
     except Exception as e:
         logger.error(f"Error in book query endpoint: {e}", exc_info=True)
