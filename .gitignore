@@ -29,6 +29,7 @@ ENV/
 
 # Environment Variables
 .env
+docker.env
 .env.local
 .env.*.local
 
