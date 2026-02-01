@@ -1,7 +1,0 @@
-[server]
-# Suppress warnings about missing secrets file
-fileWatcherType = "none"
-
-[logger]
-# Reduce log verbosity
-level = "error"

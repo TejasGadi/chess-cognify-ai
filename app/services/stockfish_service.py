@@ -40,29 +40,33 @@ class StockfishService:
         self.hash_size = settings.stockfish_hash
         self.timeout = settings.stockfish_timeout
         self._engine: Optional[chess.engine.SimpleEngine] = None
+        self._lock = asyncio.Lock()
 
     async def _get_engine(self) -> chess.engine.SimpleEngine:
-        """Get or create engine instance."""
+        """Get or create engine instance with thread-safe lock."""
         if self._engine is None:
-            try:
-                transport, engine = await chess.engine.popen_uci(
-                    self.stockfish_path,
-                )
-                # Configure engine
-                await engine.configure(
-                    {
-                        "Threads": self.threads,
-                        "Hash": self.hash_size,
-                    }
-                )
-                self._engine = engine
-                logger.info(
-                    f"Stockfish engine initialized: depth={self.depth}, "
-                    f"threads={self.threads}, hash={self.hash_size}MB"
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize Stockfish engine: {e}")
-                raise
+            async with self._lock:
+                # Double-check after acquiring lock
+                if self._engine is None:
+                    try:
+                        transport, engine = await chess.engine.popen_uci(
+                            self.stockfish_path,
+                        )
+                        # Configure engine
+                        await engine.configure(
+                            {
+                                "Threads": self.threads,
+                                "Hash": self.hash_size,
+                            }
+                        )
+                        self._engine = engine
+                        logger.info(
+                            f"Stockfish engine initialized: depth={self.depth}, "
+                            f"threads={self.threads}, hash={self.hash_size}MB"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to initialize Stockfish engine: {e}")
+                        raise
         return self._engine
 
     async def evaluate_position(

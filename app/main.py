@@ -96,4 +96,13 @@ async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("Shutting down application...")
     shutdown_langfuse()
+    
+    # Cleanup Stockfish engine
+    try:
+        from app.services.stockfish_service import get_stockfish_service
+        service = await get_stockfish_service()
+        await service.close()
+    except Exception as e:
+        logger.error(f"Error closing Stockfish engine: {e}")
+        
     logger.info("Application shutdown complete")

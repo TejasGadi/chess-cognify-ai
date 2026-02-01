@@ -65,7 +65,8 @@ async def evaluate_position_endpoint(request: EvaluateRequest):
             raise HTTPException(status_code=400, detail=f"Invalid FEN: {str(e)}")
         
         # Get Stockfish service
-        stockfish_service = StockfishService()
+        from app.services.stockfish_service import get_stockfish_service
+        stockfish_service = await get_stockfish_service()
         
         if request.multipv > 1:
             # Multi-PV analysis

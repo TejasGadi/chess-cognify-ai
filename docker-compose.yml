@@ -1,6 +1,42 @@
 version: '3.8'
 
 services:
+  frontend:
+    build:
+      context: ./chess-cognify-ui
+      dockerfile: Dockerfile
+    container_name: chess_cognify_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - chess_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chess_cognify_backend
+    env_file:
+      - docker.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app:ro
+      - ./uploads:/app/uploads
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    networks:
+      - chess_network
+
   postgres:
     image: postgres:16-alpine
     container_name: chess_cognify_postgres
@@ -8,44 +44,44 @@ services:
       POSTGRES_USER: chess_user
       POSTGRES_PASSWORD: chess_password
       POSTGRES_DB: chess_cognify
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chess_user"]
+      test: [ "CMD-SHELL", "pg_isready -U chess_user" ]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chess_network
 
   redis:
     image: redis:7-alpine
     container_name: chess_cognify_redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chess_network
 
   qdrant:
     image: qdrant/qdrant:latest
     container_name: chess_cognify_qdrant
-    ports:
-      - "6333:6333"  # HTTP API
-      - "6334:6334"  # gRPC API
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # Healthcheck removed as curl/wget are missing in the image
+    networks:
+      - chess_network
 
 volumes:
   postgres_data:
   redis_data:
   qdrant_data:
+
+
+networks:
+  chess_network:
+    driver: bridge

@@ -3,11 +3,11 @@ import Chessboard from '@/components/Chessboard';
 import EvalBar from '@/components/EvalBar';
 import SelfAnalysisSidebar from '@/components/SelfAnalysis/SelfAnalysisSidebar';
 import PGNImportDialog from '@/components/SelfAnalysis/PGNImportDialog';
-import { getDests, applyMove, uciToSan, parseGame } from '@/lib/chessLogic';
+import { getDests, applyMove, uciToSan, parseGame, generatePgn } from '@/lib/chessLogic';
 import { evaluatePositionWithLines } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { RotateCcw, RotateCw, ChevronFirst, ChevronLeft, ChevronRight, ChevronLast } from 'lucide-react';
+import { RotateCcw, RotateCw, ChevronFirst, ChevronLeft, ChevronRight, ChevronLast, Copy, Download, Share2 } from 'lucide-react';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -146,6 +146,24 @@ const SelfAnalysisPage = () => {
         setTopLines([]); // Clear analysis until new fetch
     }, []);
 
+    const copyToClipboard = (text, label) => {
+        navigator.clipboard.writeText(text).then(() => {
+            // Simple visual feedback via console or could use a toast
+            console.log(`${label} copied to clipboard`);
+        });
+    };
+
+    const downloadPgn = () => {
+        const pgn = generatePgn(moves);
+        const element = document.createElement("a");
+        const file = new Blob([pgn], { type: 'text/plain' });
+        element.href = URL.createObjectURL(file);
+        element.download = `analysis_${new Date().getTime()}.pgn`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    };
+
     return (
         <TooltipProvider>
             <div className="flex h-[calc(100vh-64px)] overflow-hidden bg-background">
@@ -257,6 +275,35 @@ const SelfAnalysisPage = () => {
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>Flip Board</TooltipContent>
+                        </Tooltip>
+
+                        <div className="h-8 w-px bg-border mx-2" />
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" onClick={() => copyToClipboard(currentFen, 'FEN')}>
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Copy FEN</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" onClick={() => copyToClipboard(generatePgn(moves), 'PGN')}>
+                                    <Share2 className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Copy PGN</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="outline" size="icon" onClick={downloadPgn}>
+                                    <Download className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Download PGN</TooltipContent>
                         </Tooltip>
                     </div>
                 </div>
