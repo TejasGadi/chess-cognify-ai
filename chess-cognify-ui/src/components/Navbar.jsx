@@ -20,7 +20,8 @@ const Navbar = () => {
         { name: 'Features', href: '#features' },
         { name: 'How It Works', href: '#how-it-works' },
         { name: 'Books', href: '/books' },
-        { name: 'Analysis', href: '/analysis' },
+        { name: 'Review', href: '/analysis' },
+        { name: 'Analysis Board', href: '/tools/analysis' },
     ];
 
     return (

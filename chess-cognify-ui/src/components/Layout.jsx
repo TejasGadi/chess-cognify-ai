@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -121,6 +121,19 @@ const Sidebar = () => {
                     </h1>
                 </NavLink>
 
+                <div className="px-4 mb-2">
+                    <NavLink to="/tools/analysis">
+                        {({ isActive }) => (
+                            <Button
+                                className={cn("w-full justify-start", isActive ? "bg-accent" : "ghost")}
+                                variant={isActive ? "secondary" : "ghost"}
+                            >
+                                <Search className="mr-2 h-4 w-4" /> Self Analysis
+                            </Button>
+                        )}
+                    </NavLink>
+                </div>
+
                 <div className="px-4 mb-4">
                     <NavLink to="/analysis">
                         {({ isActive }) => (
@@ -128,7 +141,7 @@ const Sidebar = () => {
                                 className={cn("w-full justify-start", isActive ? "bg-accent" : "ghost")}
                                 variant={isActive ? "secondary" : "ghost"}
                             >
-                                <Plus className="mr-2 h-4 w-4" /> New Analysis
+                                <Plus className="mr-2 h-4 w-4" /> New Review
                             </Button>
                         )}
                     </NavLink>
@@ -143,7 +156,7 @@ const Sidebar = () => {
                         >
                             <div className="flex items-center gap-2">
                                 <LayoutDashboard className="h-4 w-4" />
-                                <span>Game Analysis</span>
+                                <span>Game Review</span>
                             </div>
                             {isGamesExpanded ? (
                                 <ChevronDown className="h-4 w-4" />

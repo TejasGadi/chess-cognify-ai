@@ -11,6 +11,13 @@ const Chessboard = ({ fen, orientation = 'white', onMove, lastMove, check, ...pr
     const ref = useRef(null);
     const [api, setApi] = useState(null);
 
+    const onMoveRef = useRef(onMove);
+
+    // Update ref whenever onMove changes
+    useEffect(() => {
+        onMoveRef.current = onMove;
+    }, [onMove]);
+
     useEffect(() => {
         if (ref.current && !api) {
             const chessground = ChessgroundApi(ref.current, {
@@ -18,7 +25,7 @@ const Chessboard = ({ fen, orientation = 'white', onMove, lastMove, check, ...pr
                 orientation,
                 events: {
                     move: (orig, dest) => {
-                        if (onMove) onMove(orig, dest);
+                        if (onMoveRef.current) onMoveRef.current(orig, dest);
                     },
                 },
                 highlight: {
