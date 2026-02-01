@@ -28,16 +28,16 @@ The coach operates as a directed graph where each node represents a specialized 
 ### Architecture Diagram
 ```mermaid
 graph TD
-    User([User Query]) --> Ref[Reformulation Node]
-    Ref -- Standalone Query --> Qdrant[(Qdrant Vector DB)]
-    Qdrant -- 15 Chunks --> Rerank[Reranking Node]
-    Rerank -- 3-5 Best Chunks --> VLM{Diagram Detection}
-    VLM -- Image Found --> GPT4V[GPT-4o Vision API]
-    GPT4V -- Position Summary --> Prompt[Prompt Constructor]
-    VLM -- No Image --> Prompt
-    Prompt --> LLM[GPT-4o Generator]
-    LLM -- Raw Response --> Parser[Chess Data Parser]
-    Parser --> Final[Final Chat Payload]
+    User(["User Query"]) --> Ref["Reformulation Node"]
+    Ref -- "Standalone Query" --> Qdrant[("Qdrant Vector DB")]
+    Qdrant -- "15 Chunks" --> Rerank["Reranking Node"]
+    Rerank -- "3-5 Best Chunks" --> VLM{"Diagram Detection"}
+    VLM -- "Image Found" --> GPT4V["GPT-4o Vision API"]
+    GPT4V -- "Position Summary" --> Prompt["Prompt Constructor"]
+    VLM -- "No Image" --> Prompt
+    Prompt --> LLM["GPT-4o Generator"]
+    LLM -- "Raw Response" --> Parser["Chess Data Parser"]
+    Parser --> Final["Final Chat Payload"]
 ```
 
 ## 3. Implementation Details

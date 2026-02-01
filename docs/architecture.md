@@ -9,14 +9,14 @@ The application follows a classic client-server architecture with several specia
 ```mermaid
 graph TD
     User((User))
-    UI[Frontend - React/Vite]
-    API[Backend - FastAPI]
-    SF[(Stockfish Engine)]
-    DB[(PostgreSQL)]
-    Redis[(Redis Cache)]
-    Qdrant[(Qdrant Vector DB)]
-    LLM[OpenAI GPT-4o]
-    Langfuse[Langfuse Observability]
+    UI["Frontend - React/Vite"]
+    API["Backend - FastAPI"]
+    SF[("Stockfish Engine")]
+    DB[("PostgreSQL")]
+    Redis[("Redis Cache")]
+    Qdrant[("Qdrant Vector DB")]
+    LLM["OpenAI GPT-4o"]
+    Langfuse["Langfuse Observability"]
 
     User <--> UI
     UI <--> API

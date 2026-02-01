@@ -20,12 +20,12 @@ The Self Analysis Board is a specialized environment for interactive exploration
 ### Component Diagram
 ```mermaid
 graph LR
-    UI[React Interface] -- FEN -- API[FastAPI /evaluate]
-    API -- Lock Request -- Lock[asyncio.Lock]
-    Lock -- Access Granted -- SM[StockfishService]
-    SM -- UCI Commands -- SF[Stockfish Binary]
-    SF -- Score/PV -- SM
-    SM -- Compiled Data -- UI
+    UI["React Interface"] -- FEN -- API["FastAPI /evaluate"]
+    API -- "Lock Request" -- Lock["asyncio.Lock"]
+    Lock -- "Access Granted" -- SM["StockfishService"]
+    SM -- "UCI Commands" -- SF["Stockfish Binary"]
+    SF -- "Score/PV" -- SM
+    SM -- "Compiled Data" -- UI
 ```
 
 ## 3. Implementation Details
