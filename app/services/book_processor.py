@@ -227,8 +227,8 @@ class BookProcessor:
             
             # 4. Split into manageable chunks (User requested at least 1024)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,
-                chunk_overlap=300
+                chunk_size=800,
+                chunk_overlap=200
             )
             
             final_splits = text_splitter.split_documents(processed_docs)
