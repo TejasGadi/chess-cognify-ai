@@ -41,6 +41,7 @@ class StockfishService:
         self.timeout = settings.stockfish_timeout
         self._engine: Optional[chess.engine.SimpleEngine] = None
         self._lock = asyncio.Lock()
+        self._analysis_lock = asyncio.Lock()  # One command at a time per engine
 
     async def _get_engine(self) -> chess.engine.SimpleEngine:
         """Get or create engine instance with thread-safe lock."""
@@ -92,11 +93,12 @@ class StockfishService:
         analysis_depth = depth or self.depth
 
         try:
-            # Analyze position with timeout
-            info = await asyncio.wait_for(
-                engine.analyse(board, chess.engine.Limit(depth=analysis_depth)),
-                timeout=self.timeout,
-            )
+            # One analysis at a time per engine (python-chess does not allow concurrent commands)
+            async with self._analysis_lock:
+                info = await asyncio.wait_for(
+                    engine.analyse(board, chess.engine.Limit(depth=analysis_depth)),
+                    timeout=self.timeout,
+                )
 
             # Extract score
             score = info.get("score")
@@ -176,11 +178,12 @@ class StockfishService:
         analysis_depth = depth or self.depth
 
         try:
-            # Get best move
-            result = await asyncio.wait_for(
-                engine.play(board, chess.engine.Limit(depth=analysis_depth)),
-                timeout=self.timeout,
-            )
+            # One command at a time per engine
+            async with self._analysis_lock:
+                result = await asyncio.wait_for(
+                    engine.play(board, chess.engine.Limit(depth=analysis_depth)),
+                    timeout=self.timeout,
+                )
 
             best_move = result.move
             move_uci = best_move.uci()
@@ -238,12 +241,12 @@ class StockfishService:
         analysis_depth = depth or self.depth
 
         try:
-            # Use analyse with multipv parameter directly (not via configure)
-            # When multipv > 1, analyse returns a list of info dicts
-            info = await asyncio.wait_for(
-                engine.analyse(board, chess.engine.Limit(depth=analysis_depth), multipv=top_n),
-                timeout=self.timeout,
-            )
+            # One command at a time per engine
+            async with self._analysis_lock:
+                info = await asyncio.wait_for(
+                    engine.analyse(board, chess.engine.Limit(depth=analysis_depth), multipv=top_n),
+                    timeout=self.timeout,
+                )
 
             top_moves = []
             

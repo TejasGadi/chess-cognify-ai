@@ -80,7 +80,11 @@ docker-compose -f docker-compose.dev.yml up -d
 ### 2. Backend Setup
 1.  **Environment**: Create a `.env` file in the root using `.env.example`.
 2.  **Install Stockfish**: Ensure Stockfish is installed on your OS and the path is set in `.env`.
-3.  **Run Development Server**:
+3.  **Run migrations** (required once per DB; creates `books`, `games`, etc.):
+    ```bash
+    alembic upgrade head
+    ```
+4.  **Run Development Server**:
     ```bash
     # Create and activate venv
     python -m venv venv
