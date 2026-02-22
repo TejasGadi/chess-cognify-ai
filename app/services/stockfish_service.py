@@ -22,16 +22,22 @@ class StockfishService:
         
         stockfish_path = settings.stockfish_path
         if not os.path.exists(stockfish_path):
-            # Try to find Stockfish in common locations
-            detected_path = shutil.which("stockfish")
-            if detected_path:
-                stockfish_path = detected_path
-                logger.info(f"Stockfish not found at {settings.stockfish_path}, using detected path: {stockfish_path}")
+            # Try to find Stockfish: PATH first, then common Docker/Debian locations
+            fallbacks = [
+                shutil.which("stockfish"),
+                "/usr/games/stockfish",  # Debian/Ubuntu apt package in Docker
+                "/usr/bin/stockfish",
+            ]
+            for path in fallbacks:
+                if path and os.path.exists(path):
+                    stockfish_path = path
+                    logger.info(f"Stockfish not found at {settings.stockfish_path}, using: {stockfish_path}")
+                    break
             else:
-                logger.error(f"Stockfish not found at {settings.stockfish_path} and not in PATH")
+                logger.error(f"Stockfish not found at {settings.stockfish_path} and no fallback path exists")
                 raise FileNotFoundError(
                     f"Stockfish not found. Please install Stockfish or set STOCKFISH_PATH in .env. "
-                    f"Tried: {settings.stockfish_path}"
+                    f"Tried: {settings.stockfish_path}, /usr/games/stockfish, /usr/bin/stockfish"
                 )
         
         self.stockfish_path = stockfish_path

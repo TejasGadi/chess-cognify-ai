@@ -157,9 +157,10 @@ async def get_system_status(db: Session = Depends(get_db)):
         import os
         import shutil
 
-        # Try to find stockfish in common locations
+        # Try to find stockfish in common locations (include Docker/Debian path)
         stockfish_paths = [
             settings.stockfish_path,
+            "/usr/games/stockfish",  # Debian/Ubuntu apt in Docker
             "/usr/local/bin/stockfish",
             "/usr/bin/stockfish",
             shutil.which("stockfish") or "",

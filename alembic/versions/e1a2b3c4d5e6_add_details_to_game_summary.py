@@ -17,7 +17,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('game_summary', sa.Column('details', sa.JSON(), nullable=True))
+    # Idempotent: add column only if it does not exist (e.g. DB was migrated manually or re-run)
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'game_summary' AND column_name = 'details'"
+    ))
+    if result.scalar() is None:
+        op.add_column('game_summary', sa.Column('details', sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
