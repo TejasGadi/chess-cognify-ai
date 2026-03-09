@@ -148,48 +148,58 @@ const GameView = () => {
                 {/* Analysis Status Notification Bar */}
                 {currentGame && showStatus && (currentGame.status !== 'completed' || (isPolling === false && currentGame.status === 'completed')) && (
                     <div className="absolute top-8 left-1/2 -translate-x-1/2 z-20 w-full max-w-sm px-4">
-                        <div className={`p-3 rounded-xl border shadow-xl backdrop-blur-md flex items-center gap-3 transition-all duration-500 animate-in fade-in slide-in-from-top-4
+                        <div className={`p-3 rounded-xl border shadow-xl backdrop-blur-md flex flex-col gap-2 transition-all duration-500 animate-in fade-in slide-in-from-top-4
                             ${currentGame.status === 'failed'
                                 ? 'bg-destructive/10 border-destructive/20 text-destructive shadow-destructive/5'
                                 : currentGame.status === 'completed'
                                     ? 'bg-green-500/10 border-green-500/20 text-green-600 shadow-green-500/5'
                                     : 'bg-primary/10 border-primary/20 text-primary shadow-primary/5'}
                         `}>
-                            {currentGame.status === 'failed' ? (
-                                <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                            ) : currentGame.status === 'completed' ? (
-                                <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-green-600" />
-                            ) : (
-                                <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
-                            )}
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">
-                                    {currentGame.status === 'failed' ? 'Error' : currentGame.status === 'completed' ? 'Success' : 'Processing'}
-                                </p>
-                                <p className="text-sm font-semibold truncate">
-                                    {currentGame.status === 'failed'
-                                        ? (currentGame.error_message || 'Analysis failed')
-                                        : currentGame.status === 'completed'
-                                            ? 'Analysis complete!'
-                                            : 'AI is analyzing your game...'}
-                                </p>
+                            <div className="flex items-center gap-3">
+                                {currentGame.status === 'failed' ? (
+                                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                                ) : currentGame.status === 'completed' ? (
+                                    <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-green-600" />
+                                ) : (
+                                    <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-70">
+                                        {currentGame.status === 'failed' ? 'Error' : currentGame.status === 'completed' ? 'Success' : 'Processing'}
+                                    </p>
+                                    <p className="text-sm font-semibold truncate">
+                                        {currentGame.status === 'failed'
+                                            ? (currentGame.error_message || 'Analysis failed')
+                                            : currentGame.status === 'completed'
+                                                ? 'Analysis complete!'
+                                                : currentGame.current_step
+                                                    ? `${currentGame.current_step}`
+                                                    : 'AI is analyzing your game...'}
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    {(currentGame.status === 'analyzing' || currentGame.status === 'pending') && currentGame.progress > 0 && (
+                                        <span className="text-xs font-bold tabular-nums">{currentGame.progress}%</span>
+                                    )}
+                                    <button
+                                        onClick={() => setShowStatus(false)}
+                                        className="p-1 hover:bg-black/5 rounded-md transition-colors"
+                                    >
+                                        <AlertCircle className="w-4 h-4 rotate-45 opacity-50" />
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                {(currentGame.status === 'analyzing' || currentGame.status === 'pending') && (
-                                    <div className="flex gap-1 pr-1">
-                                        <div className="w-1 h-1 rounded-full bg-primary animate-pulse"></div>
-                                        <div className="w-1 h-1 rounded-full bg-primary animate-pulse [animation-delay:200ms]"></div>
-                                        <div className="w-1 h-1 rounded-full bg-primary animate-pulse [animation-delay:400ms]"></div>
-                                    </div>
-                                )}
-                                <button
-                                    onClick={() => setShowStatus(false)}
-                                    className="p-1 hover:bg-black/5 rounded-md transition-colors"
-                                >
-                                    <AlertCircle className="w-4 h-4 rotate-45 opacity-50" />
-                                </button>
-                            </div>
+                            {/* Progress Bar */}
+                            {(currentGame.status === 'analyzing' || currentGame.status === 'pending') && (
+                                <div className="w-full bg-primary/10 rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                        className="h-full bg-primary rounded-full transition-all duration-700 ease-out"
+                                        style={{ width: `${currentGame.progress || 0}%` }}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

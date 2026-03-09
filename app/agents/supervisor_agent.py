@@ -33,6 +33,22 @@ class SupervisorAgent:
         self.weakness_agent = WeaknessDetectionAgent()
         logger.info("SupervisorAgent initialized with all services")
 
+    def _update_progress(self, game_id: str, progress: int, step_name: str) -> None:
+        """Update game progress in the database for real-time UI tracking."""
+        db = SessionLocal()
+        try:
+            game = db.query(Game).filter(Game.game_id == game_id).first()
+            if game:
+                game.progress = progress
+                game.current_step = step_name
+                db.commit()
+                logger.debug(f"[PROGRESS] Game {game_id}: {progress}% - {step_name}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[PROGRESS] Failed to update progress for {game_id}: {e}")
+        finally:
+            db.close()
+
     def _create_initial_state(
         self, pgn: str, metadata: Optional[Dict[str, Any]] = None, game_id: Optional[str] = None
     ) -> GameReviewState:
@@ -94,6 +110,7 @@ class SupervisorAgent:
         
         state["current_step"] = "validating_pgn"
         state["progress_percentage"] = 5
+        self._update_progress(game_id, 5, "Validating PGN")
 
         try:
             logger.debug(f"[WORKFLOW] Calling PGNService.validate_pgn()")
@@ -136,6 +153,7 @@ class SupervisorAgent:
         
         state["current_step"] = "engine_analysis"
         state["progress_percentage"] = 20
+        self._update_progress(game_id, 20, "Engine Analysis")
 
         try:
             # Persist game first
@@ -164,6 +182,7 @@ class SupervisorAgent:
             state["engine_analyses"] = analyses
             state["engine_analysis_complete"] = True
             state["progress_percentage"] = 40
+            self._update_progress(game_id, 40, "Engine Analysis Complete")
             
             # Log agent output
             logger.info(f"[WORKFLOW] Node: analyze_engine - OUTPUT: {len(analyses)} moves analyzed")
@@ -208,6 +227,7 @@ class SupervisorAgent:
         
         state["current_step"] = "move_classification"
         state["progress_percentage"] = 50
+        self._update_progress(game_id, 50, "Classifying Moves")
 
         try:
             engine_analyses = state.get("engine_analyses", [])
@@ -247,6 +267,7 @@ class SupervisorAgent:
             state["classifications"] = classifications
             state["classification_complete"] = True
             state["progress_percentage"] = 60
+            self._update_progress(game_id, 60, "Moves Classified")
             
             # Log agent output
             logger.info(f"[WORKFLOW] Node: classify_moves - OUTPUT: {len(classifications)} moves classified")
@@ -291,6 +312,7 @@ class SupervisorAgent:
         
         state["current_step"] = "generating_explanations"
         state["progress_percentage"] = 70
+        self._update_progress(game_id, 70, "Generating Explanations")
 
         try:
             # Generate explanations for mistakes
@@ -303,6 +325,7 @@ class SupervisorAgent:
             state["explanations"] = explanations
             state["explanation_complete"] = True
             state["progress_percentage"] = 75
+            self._update_progress(game_id, 75, "Explanations Generated")
             logger.info(f"[WORKFLOW] Node: generate_explanations - SUCCESS: {len(explanations)} explanations generated")
             logger.info(f"[AGENT] ExplanationAgent - Completed: {len(explanations)} explanations generated")
             
@@ -336,6 +359,7 @@ class SupervisorAgent:
         logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - Starting for game {game_id}")
         state["current_step"] = "accuracy_rating"
         state["progress_percentage"] = 80
+        self._update_progress(game_id, 80, "Calculating Accuracy")
 
         try:
             # Calculate accuracy
@@ -385,6 +409,7 @@ class SupervisorAgent:
             state["rating_confidence"] = white_rating["confidence"]
             state["accuracy_complete"] = True
             state["progress_percentage"] = 90
+            self._update_progress(game_id, 90, "Accuracy Calculated")
             
             # Log agent output
             logger.info(f"[WORKFLOW] Node: calculate_accuracy_rating - OUTPUT:")
@@ -420,6 +445,7 @@ class SupervisorAgent:
 
         state["current_step"] = "weakness_detection"
         state["progress_percentage"] = 95
+        self._update_progress(game_id, 95, "Detecting Weaknesses")
 
         try:
             # Detect weaknesses
@@ -430,6 +456,7 @@ class SupervisorAgent:
             state["weaknesses"] = weaknesses
             state["weakness_detection_complete"] = True
             state["progress_percentage"] = 100
+            self._update_progress(game_id, 100, "Weaknesses Detected")
             
             # Log agent output
             logger.info(f"[WORKFLOW] Node: detect_weaknesses - OUTPUT: {len(weaknesses)} weaknesses detected")
@@ -458,6 +485,7 @@ class SupervisorAgent:
         state["current_step"] = "complete"
         state["review_complete"] = True
         state["progress_percentage"] = 100
+        self._update_progress(game_id, 100, "Complete")
 
         return state
 

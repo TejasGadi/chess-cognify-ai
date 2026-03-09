@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText, Search } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText, Search, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,24 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import useGameStore from '@/store/gameStore';
 import useBookStore from '@/store/bookStore';
+import { useTheme } from '@/components/ThemeProvider';
+
+const ThemeToggleButton = () => {
+    const { theme, setTheme } = useTheme();
+    const toggleTheme = () => {
+        setTheme(theme === 'dark' ? 'light' : 'dark');
+    };
+    return (
+        <button
+            onClick={toggleTheme}
+            className="w-full flex items-center gap-2 px-2 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+            aria-label="Toggle theme"
+        >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+        </button>
+    );
+};
 
 const Sidebar = () => {
     const { games, fetchGames, deleteGame, updateGame, isLoading } = useGameStore();
@@ -293,6 +311,11 @@ const Sidebar = () => {
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Theme Toggle at bottom of sidebar */}
+                <div className="p-4 border-t border-border">
+                    <ThemeToggleButton />
                 </div>
             </div>
 

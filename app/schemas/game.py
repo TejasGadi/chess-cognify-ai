@@ -30,6 +30,8 @@ class GameResponse(BaseModel):
     pgn: str
     metadata: Optional[Dict[str, Any]] = Field(None, alias="game_metadata")
     status: str = "pending"
+    progress: int = 0
+    current_step: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime
 
@@ -49,6 +51,8 @@ class GameResponse(BaseModel):
                 'pgn': data.pgn,
                 'game_metadata': data.game_metadata,
                 'status': getattr(data, 'status', "pending") or "pending",
+                'progress': getattr(data, 'progress', 0) or 0,
+                'current_step': getattr(data, 'current_step', None),
                 'error_message': getattr(data, 'error_message', None),
                 'created_at': data.created_at,
             }

@@ -16,6 +16,8 @@ class Game(Base):
     pgn = Column(Text, nullable=False)
     game_metadata = Column("metadata", JSON, nullable=True)  # time_control, player_color, etc.
     status = Column(String, default="pending")  # pending, analyzing, completed, failed
+    progress = Column(Integer, default=0)  # 0-100 percentage
+    current_step = Column(String, nullable=True)  # Current analysis step name
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

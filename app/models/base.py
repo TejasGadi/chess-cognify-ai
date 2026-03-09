@@ -12,14 +12,14 @@ if settings.database_url.startswith("sqlite"):
     engine = create_engine(
         settings.database_url,
         connect_args={"check_same_thread": False},
-        echo=settings.debug,
+        echo=False,
     )
 else:
     engine = create_engine(
         settings.database_url,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,
-        echo=settings.debug,
+        echo=False,
     )
 
 # Create session factory
