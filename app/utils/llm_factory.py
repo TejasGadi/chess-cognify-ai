@@ -2,6 +2,12 @@
 LLM Factory - Creates LLM instances using LiteLLM for multi-provider support.
 """
 from langchain_litellm import ChatLiteLLM
+import litellm
+
+# Global litellm configuration to suppress unnecessary debug logs
+litellm.set_verbose = False
+litellm.suppress_debug_info = True
+
 from app.config import settings
 from app.utils.logger import get_logger
 from app.models.base import SessionLocal

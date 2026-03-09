@@ -55,7 +55,6 @@ class RelevantChunkIndices(BaseModel):
     """Pydantic schema for structured output: indices of chunks relevant to the user query."""
 
     indices: List[int] = Field(
-        default_factory=list,
         description="Zero-based indices of document chunks that are relevant to answering the user query. Preserve order by relevance.",
     )
 
@@ -63,7 +62,7 @@ class RelevantChunkIndices(BaseModel):
 class RelevantImageURLs(BaseModel):
     """Pydantic schema for structured output: list of relevant image URLs to show in chat UI."""
 
-    urls: List[str] = Field(default_factory=list, description="Image URLs that are directly relevant to the user question or answer.")
+    urls: List[str] = Field(description="Image URLs that are directly relevant to the user question or answer.")
 
 
 class RagService:
@@ -265,28 +264,43 @@ Chunk excerpts (index then content):
 
 Task: Which chunk indices are relevant to answering the user's question? Return only the indices that should be passed to the main LLM as context. Preserve order by relevance (most relevant first). Include at least {filter_min} and at most {filter_max} indices. If fewer than {filter_max} are relevant, return only those."""
 
-        try:
-            structured_llm = self.llm.with_structured_output(RelevantChunkIndices)
-            result: RelevantChunkIndices = await structured_llm.ainvoke(prompt)
-            indices = [i for i in result.indices if 0 <= i < len(docs)]
-            seen = set()
-            unique_indices = []
-            for i in indices:
-                if i not in seen:
-                    seen.add(i)
-                    unique_indices.append(i)
-            filtered_docs = [docs[i] for i in unique_indices]
-            step_elapsed = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                f"[RAG] Step 1b: Extract relevant chunks | before={len(docs)} | after={len(filtered_docs)} | time_ms={step_elapsed:.2f}"
-            )
-            logger.debug(f"[RAG] Step 1b: kept indices={unique_indices}")
-            return {"docs": filtered_docs}
-        except Exception as e:
-            logger.warning(f"[RAG] extract_relevant_chunks fallback to all docs | error={e}")
-            step_elapsed = (time.perf_counter() - step_start) * 1000
-            logger.info(f"[RAG] Step 1b: Extract relevant chunks | before={len(docs)} | after={len(docs)} (fallback) | time_ms={step_elapsed:.2f}")
-            return {"docs": docs}
+        max_retries = 3
+        base_delay = 5.0
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                structured_llm = self.llm.with_structured_output(RelevantChunkIndices)
+                result: RelevantChunkIndices = await structured_llm.ainvoke(prompt)
+                indices = [i for i in result.indices if 0 <= i < len(docs)]
+                seen = set()
+                unique_indices = []
+                for i in indices:
+                    if i not in seen:
+                        seen.add(i)
+                        unique_indices.append(i)
+                filtered_docs = [docs[i] for i in unique_indices]
+                step_elapsed = (time.perf_counter() - step_start) * 1000
+                logger.info(
+                    f"[RAG] Step 1b: Extract relevant chunks | before={len(docs)} | after={len(filtered_docs)} | time_ms={step_elapsed:.2f}"
+                )
+                logger.debug(f"[RAG] Step 1b: kept indices={unique_indices}")
+                return {"docs": filtered_docs}
+                
+            except OpenAIRateLimitError as e:
+                if attempt == max_retries:
+                    logger.warning(f"[RAG] extract_relevant_chunks fallback to all docs after {max_retries} attempts | error={e}")
+                    break
+                delay = base_delay * attempt
+                logger.warning(f"[RAG] extract_relevant_chunks rate limit (429), retrying in {delay}s | attempt={attempt}/{max_retries}")
+                await asyncio.sleep(delay)
+                
+            except Exception as e:
+                logger.warning(f"[RAG] extract_relevant_chunks fallback to all docs | error={e}")
+                break
+                
+        step_elapsed = (time.perf_counter() - step_start) * 1000
+        logger.info(f"[RAG] Step 1b: Extract relevant chunks | before={len(docs)} | after={len(docs)} (fallback) | time_ms={step_elapsed:.2f}")
+        return {"docs": docs}
 
     async def _node_extract_images(self, state: RAGState) -> Dict[str, Any]:
         """Node: Extract unique image URLs from retrieved docs."""
@@ -324,23 +338,38 @@ Image URLs (from retrieved chunks):
 
 Task: Which image URLs are likely relevant to answering the user's question? Return only the URLs that should be analyzed by the vision model and passed to the main LLM. Put them in the 'urls' field. If none are clearly relevant, return an empty list."""
 
-        try:
-            structured_llm = self.llm.with_structured_output(RelevantImageURLs)
-            result: RelevantImageURLs = await structured_llm.ainvoke(prompt)
-            relevant = [u for u in (result.urls or []) if u in unique_image_urls]
-            step_elapsed = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                f"[RAG] Step 2b: Extract relevant images | before={len(unique_image_urls)} | after={len(relevant)} | time_ms={step_elapsed:.2f}"
-            )
-            logger.debug(f"[RAG] Step 2b: relevant_image_urls={relevant}")
-            return {"relevant_image_urls": relevant}
-        except Exception as e:
-            logger.warning(f"[RAG] extract_relevant_images fallback to all | error={e}")
-            step_elapsed = (time.perf_counter() - step_start) * 1000
-            logger.info(
-                f"[RAG] Step 2b: Extract relevant images | before={len(unique_image_urls)} | after={len(unique_image_urls)} (fallback) | time_ms={step_elapsed:.2f}"
-            )
-            return {"relevant_image_urls": unique_image_urls}
+        max_retries = 3
+        base_delay = 5.0
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                structured_llm = self.llm.with_structured_output(RelevantImageURLs)
+                result: RelevantImageURLs = await structured_llm.ainvoke(prompt)
+                relevant = [u for u in (result.urls or []) if u in unique_image_urls]
+                step_elapsed = (time.perf_counter() - step_start) * 1000
+                logger.info(
+                    f"[RAG] Step 2b: Extract relevant images | before={len(unique_image_urls)} | after={len(relevant)} | time_ms={step_elapsed:.2f}"
+                )
+                logger.debug(f"[RAG] Step 2b: relevant_image_urls={relevant}")
+                return {"relevant_image_urls": relevant}
+                
+            except OpenAIRateLimitError as e:
+                if attempt == max_retries:
+                    logger.warning(f"[RAG] extract_relevant_images fallback to all after {max_retries} attempts | error={e}")
+                    break
+                delay = base_delay * attempt
+                logger.warning(f"[RAG] extract_relevant_images rate limit (429), retrying in {delay}s | attempt={attempt}/{max_retries}")
+                await asyncio.sleep(delay)
+                
+            except Exception as e:
+                logger.warning(f"[RAG] extract_relevant_images fallback to all | error={e}")
+                break
+                
+        step_elapsed = (time.perf_counter() - step_start) * 1000
+        logger.info(
+            f"[RAG] Step 2b: Extract relevant images | before={len(unique_image_urls)} | after={len(unique_image_urls)} (fallback) | time_ms={step_elapsed:.2f}"
+        )
+        return {"relevant_image_urls": unique_image_urls}
 
     async def _node_vlm_summaries(self, state: RAGState) -> Dict[str, Any]:
         """Node: Get VLM summaries for relevant image URLs only."""
@@ -593,17 +622,32 @@ Image candidates (URL and description):
 
 Task: Which image URLs are DIRECTLY relevant to answering the user's question or are clearly referenced in the answer? Only include images that should be shown in the chat UI. Put them in the 'urls' field. If none are relevant, return an empty list."""
 
-        try:
-            structured_llm = self.llm.with_structured_output(RelevantImageURLs)
-            result: RelevantImageURLs = await structured_llm.ainvoke(prompt)
-            relevant = [u for u in (result.urls or []) if u in all_image_urls]
-            # Merge with images from chess_data (always show those)
-            result_list = list(dict.fromkeys(list(from_chess) + relevant))
-            logger.debug(f"[RAG] _filter_relevant_images: from_chess={len(from_chess)} | from_llm={len(relevant)} | result={len(result_list)}")
-            return result_list if result_list else all_image_urls  # fallback: show all if filter returned empty
-        except Exception as e:
-            logger.warning(f"[RAG] _filter_relevant_images: fallback to all images | error={e}")
-            return all_image_urls
+        max_retries = 3
+        base_delay = 5.0
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                structured_llm = self.llm.with_structured_output(RelevantImageURLs)
+                result: RelevantImageURLs = await structured_llm.ainvoke(prompt)
+                relevant = [u for u in (result.urls or []) if u in all_image_urls]
+                # Merge with images from chess_data (always show those)
+                result_list = list(dict.fromkeys(list(from_chess) + relevant))
+                logger.debug(f"[RAG] _filter_relevant_images: from_chess={len(from_chess)} | from_llm={len(relevant)} | result={len(result_list)}")
+                return result_list if result_list else all_image_urls  # fallback: show all if filter returned empty
+            
+            except OpenAIRateLimitError as e:
+                if attempt == max_retries:
+                    logger.warning(f"[RAG] _filter_relevant_images: fallback to all images after {max_retries} attempts | error={e}")
+                    break
+                delay = base_delay * attempt
+                logger.warning(f"[RAG] _filter_relevant_images rate limit (429), retrying in {delay}s | attempt={attempt}/{max_retries}")
+                await asyncio.sleep(delay)
+                
+            except Exception as e:
+                logger.warning(f"[RAG] _filter_relevant_images: fallback to all images | error={e}")
+                break
+                
+        return all_image_urls
 
     async def _analyze_single_image(self, url: str) -> Optional[Dict[str, str]]:
         """Helper to analyze a single image using LangChain ChatOpenAI (vision)."""

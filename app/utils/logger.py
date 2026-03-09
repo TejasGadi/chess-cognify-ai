@@ -85,6 +85,11 @@ def setup_logging() -> None:
     logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.dialects").setLevel(logging.WARNING)
     
+    # Silence verbose LLM logs
+    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    
     # Log the logging setup
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured - Console: {log_level}, File: {log_file}")
