@@ -13,7 +13,7 @@ import { Card } from '@/components/ui/card';
 const FeatureCard = ({ icon: Icon, title, description, delay }) => (
     <Card
         className={cn(
-            "p-8 border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500",
+            "p-8 border-border bg-card/50 backdrop-blur-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500",
             "group relative overflow-hidden"
         )}
         style={{ animationDelay: `${delay}ms` }}

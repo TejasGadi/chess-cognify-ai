@@ -59,8 +59,8 @@
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217 32% 17%;
-    --input: 217 32% 17%;
+    --border: 217 32% 25%;
+    --input: 217 32% 25%;
     --ring: 217 91% 60%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
@@ -73,7 +73,7 @@
     --sidebar-primary-foreground: 222 47% 11%;
     --sidebar-accent: 217 32% 17%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 32% 17%;
+    --sidebar-border: 217 32% 25%;
     --sidebar-ring: 217 91% 60%;
   }
 }
@@ -82,9 +82,11 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground font-sans antialiased transition-colors duration-300;
   }
+
   .theme {
     --font-sans: 'Geist Variable', sans-serif;
   }
@@ -94,18 +96,23 @@
   .glass {
     @apply bg-background/80 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-sm;
   }
+
   .glass-card {
     @apply bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-xl;
   }
+
   .gradient-text {
     @apply text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-400;
   }
+
   .hover-lift {
     @apply transition-transform duration-300 hover:-translate-y-1 hover:shadow-lg;
   }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;

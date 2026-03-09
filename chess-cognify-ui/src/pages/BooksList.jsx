@@ -85,7 +85,7 @@ const BooksList = () => {
                     {books.map((book) => (
                         <Card
                             key={book.book_id}
-                            className="group hover:shadow-lg transition-all border-border/50 hover:border-primary/50 overflow-hidden cursor-pointer flex flex-col h-full"
+                            className="group hover:shadow-lg transition-all border-border hover:border-primary/50 overflow-hidden cursor-pointer flex flex-col h-full"
                             onClick={() => {
                                 if (book.status === 'completed') {
                                     navigate(`/books/${book.book_id}`);

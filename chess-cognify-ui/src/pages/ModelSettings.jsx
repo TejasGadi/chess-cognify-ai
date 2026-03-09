@@ -294,7 +294,7 @@ const ModelSettings = () => {
                                         key={provider.id}
                                         onClick={() => handleProviderSelect(selectedType, provider.id, isActive ? activeModels[selectedType] : null)}
                                         className={`relative p-4 rounded-xl border-2 text-left flex flex-col gap-2 transition-all
-                                            ${isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10' : 'border-border/50 bg-card hover:border-primary/50 hover:bg-accent/50'}
+                                            ${isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10' : 'border-border bg-card hover:border-primary/50 hover:bg-accent/50'}
                                         `}
                                     >
                                         {isActive && (
