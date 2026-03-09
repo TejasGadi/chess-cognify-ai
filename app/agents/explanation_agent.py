@@ -4,7 +4,6 @@ Uses OpenAI with FEN-based analysis.
 Implements multi-step reasoning to prevent position hallucination.
 """
 from typing import Dict, Any, Optional, List
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import settings
 from app.models.game import MoveReview, EngineAnalysis
@@ -34,17 +33,10 @@ class ExplanationAgent:
 
     def __init__(self):
         """Initialize explanation agent with OpenAI LLM."""
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not configured")
         
-        logger.info(f"[AGENT] ExplanationAgent - Using OpenAI model: {settings.openai_model}")
-        
-        self.llm = ChatOpenAI(
-            model=settings.openai_model,
-            api_key=settings.openai_api_key,
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
-        )
+        logger.info("[AGENT] ExplanationAgent - Initializing with default factory LLM")
+        from app.utils.llm_factory import get_llm
+        self.llm = get_llm(use_vision=False)
         
         # Initialize position extraction agent for multi-step reasoning
         self.position_extraction_agent = PositionExtractionAgent()

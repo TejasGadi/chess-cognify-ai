@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph
 from langgraph.constants import START, END
 from langchain_qdrant import QdrantVectorStore
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
+from app.utils.llm_factory import get_llm
+from app.utils.embeddings import get_embeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -78,12 +78,8 @@ class RagService:
             api_key=settings.qdrant_api_key
         )
         
-        # Initialize Embedding Model (retry on 429 rate limit)
-        self.embedding_model = OpenAIEmbeddings(
-            model=settings.openai_embedding_model,
-            api_key=settings.openai_api_key,
-            max_retries=3,
-        )
+        # Initialize Embedding Model
+        self.embedding_model = get_embeddings()
         
         # Initialize Vector Store
         self.vector_store = QdrantVectorStore(
@@ -92,21 +88,11 @@ class RagService:
             embedding=self.embedding_model,
         )
         
-        # Initialize LLM (retry on 429 rate limit)
-        self.llm = ChatOpenAI(
-            model=settings.openai_model,
-            api_key=settings.openai_api_key,
-            temperature=0.3,  # Slightly creative but grounded
-            max_retries=3,
-        )
+        # Initialize LLM
+        self.llm = get_llm(use_vision=False)
 
-        # Vision LLM for image analysis (LangChain ChatOpenAI)
-        self.vision_llm = ChatOpenAI(
-            model=settings.openai_vision_model,
-            api_key=settings.openai_api_key,
-            max_tokens=300,
-            max_retries=3,
-        )
+        # Vision LLM for image analysis
+        self.vision_llm = get_llm(use_vision=True)
 
         # Define Prompt
         self.prompt = ChatPromptTemplate.from_template(

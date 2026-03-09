@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText, Search, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Menu, Plus, Trash2, Edit2, Gamepad2, ChevronDown, ChevronRight, Activity, AlertCircle, Clock, FileText, Search, Sun, Moon, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -313,9 +313,25 @@ const Sidebar = () => {
                     </div>
                 </div>
 
-                {/* Theme Toggle at bottom of sidebar */}
-                <div className="p-4 border-t border-border">
-                    <ThemeToggleButton />
+                {/* Settings & Theme Toggle at bottom of sidebar */}
+                <div className="border-t border-border">
+                    <div className="p-3 pb-1">
+                        <NavLink
+                            to="/settings"
+                            className={({ isActive }) =>
+                                cn(
+                                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium hover:bg-accent transition-colors",
+                                    isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+                                )
+                            }
+                        >
+                            <Settings className="w-4 h-4" />
+                            Model Settings
+                        </NavLink>
+                    </div>
+                    <div className="p-4 pt-2">
+                        <ThemeToggleButton />
+                    </div>
                 </div>
             </div>
 

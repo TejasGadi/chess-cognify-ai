@@ -7,7 +7,7 @@ from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.datamodel.base_models import InputFormat
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_qdrant import QdrantVectorStore
-from langchain_openai import OpenAIEmbeddings
+from app.utils.embeddings import get_embeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from app.config import settings
@@ -31,10 +31,7 @@ class BookProcessor:
             api_key=settings.qdrant_api_key
         )
         
-        self.embedding_model = OpenAIEmbeddings(
-            model=settings.openai_embedding_model,
-            api_key=settings.openai_api_key
-        )
+        self.embedding_model = get_embeddings()
         
         self.collection_name = settings.qdrant_collection_name
         self._ensure_collection_exists()

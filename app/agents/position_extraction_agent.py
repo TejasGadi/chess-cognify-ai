@@ -3,7 +3,6 @@ Position Extraction Agent - Extracts piece positions from chess positions using 
 This is the first step in multi-step reasoning to prevent position hallucination.
 """
 from typing import Dict, Any, Optional, List
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import settings
 from app.schemas.llm_output import PositionExtractionOutput
@@ -20,10 +19,7 @@ class PositionExtractionAgent:
 
     def __init__(self):
         """Initialize position extraction agent with OpenAI LLM."""
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not configured")
-        
-        logger.info(f"[AGENT] PositionExtractionAgent - Using OpenAI model: {settings.openai_model}")
+        logger.info("[AGENT] PositionExtractionAgent - Initializing with default factory LLM")
         
         self.llm = get_llm(use_vision=False, require_primary=True)
         

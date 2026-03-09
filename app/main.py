@@ -46,6 +46,47 @@ app.add_exception_handler(SQLAlchemyError, database_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Run application startup tasks."""
+    logger.info("Running typical startup tasks...")
+    # Seed model configurations from env vars on first run
+    from app.models.base import SessionLocal
+    from app.models.model_config import ModelConfig
+    from app.utils.crypto import encrypt_api_key
+    
+    db = SessionLocal()
+    try:
+        # Check if configs already exist
+        existing_configs = db.query(ModelConfig).count()
+        if existing_configs == 0 and settings.openai_api_key:
+            logger.info("No model configs found. Bootstrapping from environment variables...")
+            
+            encrypted_key = encrypt_api_key(settings.openai_api_key)
+            
+            # Setup LLM, Vision, Embedding defaults using OpenAI
+            llm_config = ModelConfig(
+                config_type="llm", provider="openai",
+                model_name=settings.openai_model, api_key_encrypted=encrypted_key, is_active=True
+            )
+            vision_config = ModelConfig(
+                config_type="vision", provider="openai",
+                model_name=settings.openai_vision_model, api_key_encrypted=encrypted_key, is_active=True
+            )
+            embedding_config = ModelConfig(
+                config_type="embedding", provider="openai",
+                model_name=settings.openai_embedding_model, api_key_encrypted=encrypted_key, is_active=True
+            )
+            
+            db.add_all([llm_config, vision_config, embedding_config])
+            db.commit()
+            logger.info("Successfully bootstrapped default OpenAI configurations.")
+    except Exception as e:
+        logger.error(f"Error bootstrapping model configs: {e}")
+    finally:
+        db.close()
+
+
 @app.get("/")
 async def root():
     """Root endpoint."""
@@ -80,12 +121,14 @@ from app.api.chat import router as chat_router
 from app.api.books import router as books_router
 from app.api.status import status_router
 from app.api.evaluate import router as evaluate_router
+from app.api.model_config import router as model_config_router
 
 app.include_router(games_router)
 app.include_router(books_router)
 app.include_router(chat_router)
 app.include_router(status_router)
 app.include_router(evaluate_router)
+app.include_router(model_config_router)
 
 # Mount static files for book images
 app.mount("/api/book_images", StaticFiles(directory=IMAGE_DIR), name="book_images")

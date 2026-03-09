@@ -30,6 +30,13 @@ hiredis==2.3.2
 langchain-qdrant==1.1.0
 qdrant-client==1.16.2
 
+# Multi-Provider LLM Support
+litellm>=1.60.0
+langchain-litellm>=0.3.0
+
+# Encryption
+cryptography>=43.0.0
+
 # Embeddings - OpenAI (Standard)
 # langchain-ollama was removed
 

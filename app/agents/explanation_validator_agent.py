@@ -18,10 +18,7 @@ class ExplanationValidatorAgent:
 
     def __init__(self):
         """Initialize explanation validator agent with OpenAI LLM."""
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY not configured")
-        
-        logger.info(f"[AGENT] ExplanationValidatorAgent - Using OpenAI model: {settings.openai_model}")
+        logger.info("[AGENT] ExplanationValidatorAgent - Initializing with default factory LLM")
         
         self.llm = get_llm(use_vision=False, require_primary=True)
         
