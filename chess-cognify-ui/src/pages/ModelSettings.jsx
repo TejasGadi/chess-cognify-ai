@@ -314,10 +314,12 @@ const ModelSettings = () => {
                         </div>
 
                         {selectedType === 'embedding' && (
-                            <Alert variant="warning" className="bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20 mt-6">
-                                <AlertCircle className="h-4 w-4" />
-                                <AlertTitle>Changing Embedding Models</AlertTitle>
-                                <AlertDescription className="text-xs mt-1 leading-relaxed">
+                            <Alert variant="warning" className="bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20 mt-6 flex flex-col gap-1 items-start text-left">
+                                <div className="flex items-center gap-2">
+                                    <AlertCircle className="h-4 w-4 shrink-0" />
+                                    <AlertTitle className="m-0 text-sm font-semibold">Changing Embedding Models</AlertTitle>
+                                </div>
+                                <AlertDescription className="text-xs mt-1 leading-relaxed pl-6">
                                     If you change your embedding provider, all existing vectors in your chess library will be invalidated. The system will automatically re-index your PDF books to ensure search works properly.
                                 </AlertDescription>
                             </Alert>
