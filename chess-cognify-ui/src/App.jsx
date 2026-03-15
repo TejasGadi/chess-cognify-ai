@@ -9,23 +9,26 @@ import BookChat from '@/pages/BookChat';
 import ModelSettings from '@/pages/ModelSettings';
 import SelfAnalysisPage from '@/pages/SelfAnalysisPage';
 import { Toaster } from '@/components/ui/sonner';
+import HealthGate from '@/components/HealthGate';
 
 function App() {
   return (
     <Router>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/analysis" element={<AnalysisDashboard />} />
-          <Route path="/analysis/:gameId" element={<GameView />} />
-          <Route path="/tools/analysis" element={<SelfAnalysisPage />} />
-          <Route path="/books" element={<BooksList />} />
-          <Route path="/books/upload" element={<BooksUpload />} />
-          <Route path="/books/:bookId" element={<BookChat />} />
-          <Route path="/settings" element={<ModelSettings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
+      <HealthGate>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/analysis" element={<AnalysisDashboard />} />
+            <Route path="/analysis/:gameId" element={<GameView />} />
+            <Route path="/tools/analysis" element={<SelfAnalysisPage />} />
+            <Route path="/books" element={<BooksList />} />
+            <Route path="/books/upload" element={<BooksUpload />} />
+            <Route path="/books/:bookId" element={<BookChat />} />
+            <Route path="/settings" element={<ModelSettings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </HealthGate>
       <Toaster position="bottom-right" />
     </Router>
   );

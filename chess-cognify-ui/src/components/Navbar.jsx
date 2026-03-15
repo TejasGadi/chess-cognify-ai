@@ -4,6 +4,7 @@ import { Gamepad2, Menu, X, ArrowRight, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/ThemeProvider';
+import HealthIndicator from '@/components/HealthIndicator';
 
 const Navbar = () => {
     const [isScrolled, setIsScrolled] = useState(false);
@@ -64,8 +65,9 @@ const Navbar = () => {
                     ))}
                 </div>
 
-                {/* CTA & Theme */}
-                <div className="hidden md:flex items-center gap-4">
+                {/* CTA & Theme & Health */}
+                <div className="hidden md:flex items-center gap-2">
+                    <HealthIndicator variant="icon" />
                     <button
                         onClick={toggleTheme}
                         className="p-2 rounded-full hover:bg-muted text-muted-foreground transition-colors"
@@ -80,8 +82,9 @@ const Navbar = () => {
                     </Link>
                 </div>
 
-                {/* Mobile Toggle & Theme */}
-                <div className="md:hidden flex items-center gap-2">
+                {/* Mobile Toggle & Theme & Health */}
+                <div className="md:hidden flex items-center gap-1">
+                    <HealthIndicator variant="icon" />
                     <button
                         onClick={toggleTheme}
                         className="p-2 text-foreground"

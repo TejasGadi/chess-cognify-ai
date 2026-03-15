@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import useGameStore from '@/store/gameStore';
 import useBookStore from '@/store/bookStore';
 import { useTheme } from '@/components/ThemeProvider';
+import HealthIndicator from '@/components/HealthIndicator';
 
 const ThemeToggleButton = () => {
     const { theme, setTheme } = useTheme();
@@ -313,7 +314,7 @@ const Sidebar = () => {
                     </div>
                 </div>
 
-                {/* Settings & Theme Toggle at bottom of sidebar */}
+                {/* Settings, Health & Theme Toggle at bottom of sidebar */}
                 <div className="border-t border-border">
                     <div className="p-3 pb-1">
                         <NavLink
@@ -328,6 +329,9 @@ const Sidebar = () => {
                             <Settings className="w-4 h-4" />
                             Model Settings
                         </NavLink>
+                    </div>
+                    <div className="px-3 pb-1">
+                        <HealthIndicator variant="sidebar" />
                     </div>
                     <div className="p-4 pt-2">
                         <ThemeToggleButton />
